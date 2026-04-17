@@ -7,12 +7,12 @@
  
 INSERT INTO "prod-ptbwa-da"."report_summary_reach_daily"
 
-with ag as (
-    select 
+with acp as (
+    select
         *
     from
-	
-        "ptbwa-metadata"."adgroup"
+
+        "ptbwa-metadata"."adcampaign"
     where
         '{input_date}' between cast(date_format(CAST(startdt AS timestamp), '%Y-%m-%d') as varchar) and cast(date_format(CAST(enddt AS timestamp), '%Y-%m-%d') as varchar)
         and logparsefg='Y'
@@ -21,10 +21,10 @@ with ag as (
     SELECT
         MIN(startdt) AS min_startdt
     FROM
-        ag
+        acp
 ), reach_sum as (
     SELECT
-        ag.agno AS AGNO,
+        acp.agno AS AGNO,
         CASE
             WHEN SUM(REACH1) IS NULL THEN 0
             ELSE SUM(REACH1)
@@ -40,9 +40,9 @@ with ag as (
     FROM
         "prod-ptbwa-da"."report_summary_reach_daily" as summary
     INNER JOIN
-        ag
+        acp
     on
-        summary.agno=ag.agno
+        summary.agno=acp.agno
     WHERE
         date BETWEEN cast(date_format(CAST(startdt AS timestamp), '%Y-%m-%d') as varchar) AND cast(date_add('day', -1, cast('{input_date}' as date)) as varchar)
     GROUP BY 
@@ -54,20 +54,12 @@ with ag as (
         ag_no,
         log_type,
         ifa,
-        CASE
-            WHEN ag_no=688 THEN 'tv.anypoint.uplus.pp'
-            WHEN ag_no=689 THEN 'tv.anypoint.kt'
-            WHEN ag_no=691 THEN 'tv.anypoint.skb.pp'  
-            WHEN postback_log.media_id IN ('CX3NWBJED7HA', '9P4XDTQ81FPZ') THEN postback_log.app_id 
-            WHEN postback_log.media_id='1FWMMFN3QDZ3' THEN 'test'
-            ELSE NULL
-        END AS INVENTORYNM
     FROM 
 		"prod-ptbwa-dw".postback_log
     inner join
-        ag
+        acp
     on
-        ag.agno=postback_log.ag_no
+        acp.agno=postback_log.ag_no
     CROSS JOIN
         ag_min
     WHERE
@@ -94,9 +86,9 @@ with ag as (
     FROM 
 		"prod-ptbwa-dw".ab_postback_log
     inner join
-        ag
+        acp
     on
-        ag.agno=ab_postback_log.ag_no
+        acp.agno=ab_postback_log.ag_no
     CROSS JOIN
         ag_min
     WHERE
@@ -186,9 +178,9 @@ SELECT
     --      ELSE CAST(d.views AS DOUBLE) / d.unique_reach
     --  END AS DAILYFREQUENCY,
     --CAST(d.views AS DOUBLE) / d.unique_reach AS DAILYFREQUENCY,
-    fcr.cumulative_reach_1_plus-COALESCE(reach_sum.SUM_REACH1, 0) AS REACH1,
-    fcr.cumulative_reach_2_plus-COALESCE(reach_sum.SUM_REACH2, 0) AS REACH2,
-    fcr.cumulative_reach_3_plus-COALESCE(reach_sum.SUM_REACH3, 0) AS REACH3,
+    fcr.cumulative_reach_1_plus-0 AS REACH1,
+    fcr.cumulative_reach_2_plus-0 AS REACH2,
+    fcr.cumulative_reach_3_plus-0 AS REACH3,
 	'{input_year}' as year,
     '{input_month}' as month,
     '{input_day}' as day
