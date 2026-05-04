@@ -9,13 +9,8 @@ from awsglue.job import Job
 from awsglue.utils import getResolvedOptions
 from google.ads.googleads.client import GoogleAdsClient
 
-# 1. Glue 초기화 및 파라미터 수신
-# Glue 파라미터 창에서 입력한 값들을 가져옵니다.
-args = getResolvedOptions(sys.argv, [
-    'JOB_NAME',
-    'start_date',
-    'end_date'
-])
+# 1. 필수 파라미터(JOB_NAME) 수신
+args = getResolvedOptions(sys.argv, ['JOB_NAME'])
 
 sc = SparkContext()
 glueContext = GlueContext(sc)
@@ -23,21 +18,30 @@ spark = glueContext.spark_session
 job = Job(glueContext)
 job.init(args['JOB_NAME'], args)
 
-# 2. 동적 파라미터 파싱
-# 날짜 문자열(YYYY-MM-DD)을 datetime.date 객체로 변환
-START_DATE = datetime.strptime(args['start_date'], "%Y-%m-%d").date()
-END_DATE = datetime.strptime(args['end_date'], "%Y-%m-%d").date()
+# 2. 동적 파라미터 파싱 (파라미터가 없으면 '어제' 날짜를 기본값으로 사용)
+def get_optional_argument(param_name, default_value):
+    if f'--{param_name}' in sys.argv:
+        return getResolvedOptions(sys.argv, [param_name])[param_name]
+    return default_value
+
+yesterday_str = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+start_date_str = get_optional_argument('start_date', yesterday_str)
+end_date_str = get_optional_argument('end_date', yesterday_str)
+
+START_DATE = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+END_DATE = datetime.strptime(end_date_str, "%Y-%m-%d").date()
 
 print(f"조회 기간: {START_DATE} ~ {END_DATE}")
 
-# 3. 기본 변수 설정
+# 3. 기본 변수 설정 (S3 버킷 및 파일 경로 주의)
 S3_BUCKET = "ptbwa-da"
-S3_CONFIG_KEY = "prod/config/google_ads_api_client.pickle" # S3에 업로드된 pickle 경로
+S3_CONFIG_KEY = "prod/config/google_ads_api_client.pickle"
 LOCAL_CONFIG_PATH = "/tmp/google_ads_api_client.pickle"
 API_VERSION = "v23"
-customer_id = "6884951170" # addirect_youtube
+customer_id = "6884951170"
 
-# 4. S3에서 Pickle 파일 다운로드 (dbfs 대체)
+# 4. S3에서 Pickle 파일 다운로드
 s3_client = boto3.client('s3')
 print(f"Downloading config from s3://{S3_BUCKET}/{S3_CONFIG_KEY}...")
 s3_client.download_file(S3_BUCKET, S3_CONFIG_KEY, LOCAL_CONFIG_PATH)
@@ -96,28 +100,22 @@ while current_date <= END_DATE:
 
 print(f"Total rows fetched: {len(all_rows)}")
 
-# 7. S3 저장 및 Athena 카탈로그 업데이트
+# 7. 데이터 저장 (S3 -> Athena 갱신 -> RDS 적재)
 if not all_rows:
     print("No data found to process.")
 else:
-    # DataFrame 생성
+    # Spark DataFrame 생성
     df = spark.createDataFrame(all_rows)
     
-    # S3 Parquet 저장 (s3:// 프로토콜 사용)
+    # [A] S3 Parquet 저장 및 Athena 파티션 갱신
     s3_output_path = f"s3://{S3_BUCKET}/prod/addi_conv_gclid_youtube"
-    df.write.mode("append") \
-        .partitionBy("date") \
-        .format("parquet") \
-        .save(s3_output_path)
-    
+    df.write.mode("append").partitionBy("date").format("parquet").save(s3_output_path)
     print(f"Data successfully saved to {s3_output_path}")
 
-    # Spark SQL을 이용한 데이터베이스, 테이블 생성 및 파티션 갱신
     db_name = "prod_addi_conv"
     table_name = "addi_conv_gclid_youtube"
 
     spark.sql(f"CREATE DATABASE IF NOT EXISTS `{db_name}`")
-    
     spark.sql(f"""
     CREATE EXTERNAL TABLE IF NOT EXISTS `{db_name}`.`{table_name}` (
       gclid STRING,
@@ -134,9 +132,19 @@ else:
     LOCATION '{s3_output_path}'
     TBLPROPERTIES ("parquet.compress"="SNAPPY")
     """)
-    
-    # MSCK REPAIR를 통해 새 파티션 인식
     spark.sql(f"MSCK REPAIR TABLE `{db_name}`.`{table_name}`")
     print("Athena/Glue Catalog partition update completed successfully.")
+
+    # [B] RDS (MySQL) 적재
+    db_url = "jdbc:mysql://database-addi.ckmngphs6qfc.ap-northeast-2.rds.amazonaws.com:3306/addi"
+    db_properties = {
+        "user": "propfit",
+        "password": "Ptbw1234",
+        "driver": "com.mysql.cj.jdbc.Driver"
+    }
+    
+    # RDS에 데이터를 Append 모드로 추가합니다.
+    df.write.jdbc(url=db_url, table=table_name, mode="append", properties=db_properties)
+    print("RDS database data insertion completed successfully.")
 
 job.commit()
