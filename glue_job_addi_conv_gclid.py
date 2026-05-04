@@ -14,8 +14,7 @@ from google.ads.googleads.client import GoogleAdsClient
 args = getResolvedOptions(sys.argv, [
     'JOB_NAME',
     'start_date',
-    'end_date',
-    'campaign_ids'
+    'end_date'
 ])
 
 sc = SparkContext()
@@ -29,11 +28,7 @@ job.init(args['JOB_NAME'], args)
 START_DATE = datetime.strptime(args['start_date'], "%Y-%m-%d").date()
 END_DATE = datetime.strptime(args['end_date'], "%Y-%m-%d").date()
 
-# 쉼표로 구분된 캠페인 ID 문자열 (그대로 SQL IN 절에 사용 가능)
-campaign_ids_str = args['campaign_ids']
-
 print(f"조회 기간: {START_DATE} ~ {END_DATE}")
-print(f"타겟 캠페인: {campaign_ids_str}")
 
 # 3. 기본 변수 설정
 S3_BUCKET = "ptbwa-da"
@@ -76,7 +71,6 @@ while current_date <= END_DATE:
         FROM click_view
         WHERE
             segments.date = '{date_str}'
-            AND campaign.id IN ({campaign_ids_str})
     """
 
     stream = ga_service.search_stream(customer_id=customer_id, query=query)
