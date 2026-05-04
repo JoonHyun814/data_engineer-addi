@@ -91,7 +91,9 @@ while current_date <= END_DATE:
                 "ad_group_name": row.ad_group.name,
                 "c_id": row.campaign.id,
                 "c_name": row.campaign.name,
-                "date": row.segments.date,
+                "year": current_date.strftime("%Y"),
+                "month": current_date.strftime("%m"),
+                "day": current_date.strftime("%d"),
             })
 
     print(f"[{date_str}] rows fetched: {len(rows)}")
@@ -100,16 +102,18 @@ while current_date <= END_DATE:
 
 print(f"Total rows fetched: {len(all_rows)}")
 
-# 7. 데이터 저장 (S3 -> Athena 갱신 -> RDS 적재)
+# 7. 데이터 저장 (S3 -> Athena 갱신)
 if not all_rows:
     print("No data found to process.")
 else:
     # Spark DataFrame 생성
     df = spark.createDataFrame(all_rows)
     
-    # [A] S3 Parquet 저장 및 Athena 파티션 갱신
+    # S3 Parquet 저장 및 Athena 파티션 갱신
+    # dynamic: 현재 DataFrame에 포함된 날짜 파티션만 덮어써서 재실행 시 중복 방지
+    spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
     s3_output_path = f"s3://{S3_BUCKET}/prod/addi_conv_gclid_youtube"
-    df.write.mode("append").partitionBy("date").format("parquet").save(s3_output_path)
+    df.write.mode("overwrite").partitionBy("year", "month", "day").format("parquet").save(s3_output_path)
     print(f"Data successfully saved to {s3_output_path}")
 
     db_name = "prod_addi_conv"
@@ -127,24 +131,12 @@ else:
       c_id BIGINT,
       c_name STRING
     )
-    PARTITIONED BY (date STRING)
+    PARTITIONED BY (year STRING, month STRING, day STRING)
     STORED AS PARQUET
     LOCATION '{s3_output_path}'
     TBLPROPERTIES ("parquet.compress"="SNAPPY")
     """)
     spark.sql(f"MSCK REPAIR TABLE `{db_name}`.`{table_name}`")
     print("Athena/Glue Catalog partition update completed successfully.")
-
-    # [B] RDS (MySQL) 적재
-    db_url = "jdbc:mysql://database-addi.ckmngphs6qfc.ap-northeast-2.rds.amazonaws.com:3306/addi"
-    db_properties = {
-        "user": "propfit",
-        "password": "Ptbw1234",
-        "driver": "com.mysql.cj.jdbc.Driver"
-    }
-    
-    # RDS에 데이터를 Append 모드로 추가합니다.
-    df.write.jdbc(url=db_url, table=table_name, mode="append", properties=db_properties)
-    print("RDS database data insertion completed successfully.")
 
 job.commit()

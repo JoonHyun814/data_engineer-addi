@@ -1,0 +1,104 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "S3ScriptAndConfig",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::aws-glue-assets-170217667865-ap-northeast-2/scripts/*",
+        "arn:aws:s3:::ptbwa-da/prod/config/google_ads_api_client.pickle"
+      ]
+    },
+    {
+      "Sid": "S3GlueAssetsBucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::aws-glue-assets-170217667865-ap-northeast-2",
+        "arn:aws:s3:::aws-glue-assets-170217667865-ap-northeast-2/*"
+      ]
+    },
+    {
+      "Sid": "S3DataBucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::ptbwa-da",
+        "arn:aws:s3:::ptbwa-da/prod/*"
+      ]
+    },
+    {
+      "Sid": "SecretsManager",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:GetSecretValue"
+      ],
+      "Resource": [
+        "arn:aws:secretsmanager:ap-northeast-2:170217667865:secret:rds-addi*"
+      ]
+    },
+    {
+      "Sid": "GlueCatalog",
+      "Effect": "Allow",
+      "Action": [
+        "glue:CreateDatabase",
+        "glue:GetDatabase",
+        "glue:GetDatabases",
+        "glue:CreateTable",
+        "glue:GetTable",
+        "glue:GetTables",
+        "glue:UpdateTable",
+        "glue:BatchCreatePartition",
+        "glue:GetPartition",
+        "glue:GetPartitions",
+        "glue:BatchGetPartition"
+      ],
+      "Resource": [
+        "arn:aws:glue:ap-northeast-2:170217667865:catalog",
+        "arn:aws:glue:ap-northeast-2:170217667865:database/default",
+        "arn:aws:glue:ap-northeast-2:170217667865:database/prod_addi_conv",
+        "arn:aws:glue:ap-northeast-2:170217667865:table/prod_addi_conv/*"
+      ]
+    },
+    {
+      "Sid": "EC2VpcAccess",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeVpcs",
+        "ec2:DescribeSubnets",
+        "ec2:DescribeSecurityGroups",
+        "ec2:DescribeRouteTables",
+        "ec2:DescribeVpcEndpoints",
+        "ec2:DescribeNetworkInterfaces",
+        "ec2:CreateNetworkInterface",
+        "ec2:DeleteNetworkInterface"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudWatchLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": [
+        "arn:aws:logs:ap-northeast-2:170217667865:log-group:/aws-glue/*"
+      ]
+    }
+  ]
+}
