@@ -1,0 +1,53 @@
+{
+  "Comment": "Addi Conv GCLID: Google Ads -> S3/Athena -> RDS",
+  "StartAt": "RunGlueJobAthena",
+  "States": {
+    "RunGlueJobAthena": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "glue_job_addi_conv_gclid",
+        "Arguments": {
+          "--start_date.$": "$.date",
+          "--end_date.$": "$.date"
+        }
+      },
+      "ResultPath": null,
+      "Next": "RunGlueJobRDS",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "JobFailed"
+        }
+      ]
+    },
+    "RunGlueJobRDS": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "insert-athena-data-to-rdb",
+        "Arguments": {
+          "--athena_result_base_path": "s3://ptbwa-da/prod/addi_conv_gclid_youtube",
+          "--date.$": "$.date",
+          "--athena_db": "prod_addi_conv",
+          "--athena_table": "addi_conv_gclid_youtube",
+          "--rdb_db": "addi",
+          "--rdb_table": "addi_conv_gclid_youtube"
+        }
+      },
+      "ResultPath": null,
+      "End": true,
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "JobFailed"
+        }
+      ]
+    },
+    "JobFailed": {
+      "Type": "Fail",
+      "Error": "GlueJobFailed",
+      "Cause": "One of the Glue jobs failed. Check CloudWatch Logs for details."
+    }
+  }
+}
