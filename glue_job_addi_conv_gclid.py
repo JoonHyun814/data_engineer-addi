@@ -64,14 +64,9 @@ while current_date <= END_DATE:
     query = f"""
         SELECT
             click_view.gclid,
-            click_view.ad_group_ad,
-            click_view.resource_name,
-            ad_group.campaign,
-            ad_group.name,
-            campaign.name,
             campaign.id,
-            segments.date,
-            ad_group.id
+            campaign.name,
+            segments.date
         FROM click_view
         WHERE
             segments.date = '{date_str}'
@@ -79,18 +74,16 @@ while current_date <= END_DATE:
 
     stream = ga_service.search_stream(customer_id=customer_id, query=query)
 
+    created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
     rows = []
     for batch in stream:
         for row in batch.results:
             rows.append({
+                "Date": date_str,
+                "cmp_you_no": row.campaign.id,
+                "CMP_name": row.campaign.name,
                 "gclid": row.click_view.gclid,
-                "ad_group_ad": row.click_view.ad_group_ad,
-                "resource_name": row.click_view.resource_name,
-                "campaign": row.ad_group.campaign,
-                "ad_group_id": row.ad_group.id,
-                "ad_group_name": row.ad_group.name,
-                "c_id": row.campaign.id,
-                "c_name": row.campaign.name,
+                "created_at": created_at,
                 "year": current_date.strftime("%Y"),
                 "month": current_date.strftime("%m"),
                 "day": current_date.strftime("%d"),
@@ -122,14 +115,11 @@ else:
     spark.sql(f"CREATE DATABASE IF NOT EXISTS `{db_name}`")
     spark.sql(f"""
     CREATE EXTERNAL TABLE IF NOT EXISTS `{db_name}`.`{table_name}` (
+      Date STRING,
+      cmp_you_no BIGINT,
+      CMP_name STRING,
       gclid STRING,
-      ad_group_ad STRING,
-      resource_name STRING,
-      campaign STRING,
-      ad_group_id BIGINT,
-      ad_group_name STRING,
-      c_id BIGINT,
-      c_name STRING
+      created_at STRING
     )
     PARTITIONED BY (year STRING, month STRING, day STRING)
     STORED AS PARQUET
