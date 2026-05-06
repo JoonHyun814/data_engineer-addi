@@ -1,0 +1,6 @@
+pymysql
+pandas
+boto3
+retry
+DBUtils
+python-dateutil

@@ -1,0 +1,70 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "SecretsManager",
+      "Effect": "Allow",
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": "arn:aws:secretsmanager:ap-northeast-2:170217667865:secret:database_de*"
+    },
+    {
+      "Sid": "S3",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::ptbwa-da",
+        "arn:aws:s3:::ptbwa-da/prod/addi_conv_cmp_list_youtube/*"
+      ]
+    },
+    {
+      "Sid": "Glue",
+      "Effect": "Allow",
+      "Action": [
+        "glue:GetDatabase",
+        "glue:GetTable",
+        "glue:CreateTable",
+        "glue:GetPartition",
+        "glue:CreatePartition",
+        "glue:BatchCreatePartition"
+      ],
+      "Resource": [
+        "arn:aws:glue:ap-northeast-2:170217667865:catalog",
+        "arn:aws:glue:ap-northeast-2:170217667865:database/prod_addi_conv",
+        "arn:aws:glue:ap-northeast-2:170217667865:table/prod_addi_conv/addi_conv_cmp_list_youtube"
+      ]
+    },
+    {
+      "Sid": "SSMWatermark",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetParameter",
+        "ssm:PutParameter"
+      ],
+      "Resource": "arn:aws:ssm:ap-northeast-2:170217667865:parameter/addi/sync/*"
+    },
+    {
+      "Sid": "CloudWatchLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "arn:aws:logs:ap-northeast-2:170217667865:log-group:/aws/lambda/SyncYoutubeDemandgen:*"
+    },
+    {
+      "Sid": "VPCNetworkInterface",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CreateNetworkInterface",
+        "ec2:DescribeNetworkInterfaces",
+        "ec2:DeleteNetworkInterface"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "Name": "sync-youtube-demandgen",
+  "Description": "prod_data_service.addi_youtube_demandgen → prod_addi_conv.addi_conv_cmp_list_youtube 증분 동기화",
+  "ScheduleExpression": "rate(1 hour)",
+  "ScheduleExpressionTimezone": "Asia/Seoul",
+  "FlexibleTimeWindow": {
+    "Mode": "OFF"
+  },
+  "State": "ENABLED",
+  "Target": {
+    "Arn": "arn:aws:lambda:ap-northeast-2:170217667865:function:SyncYoutubeDemandgen",
+    "RoleArn": "arn:aws:iam::170217667865:role/EventBridgeSchedulerToLambdaRole",
+    "Input": {
+      "db_cluster_name": "database-de",
+      "db_name": "prod_data_service",
+      "table_name": "addi_youtube_demandgen",
+      "watermark_column": "campaign_no",
+      "glue_db": "prod_addi_conv",
+      "glue_table": "addi_conv_cmp_list_youtube",
+      "s3_bucket": "ptbwa-da",
+      "s3_prefix": "prod/addi_conv_cmp_list_youtube"
+    }
+  }
+}
