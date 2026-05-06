@@ -1,12 +1,30 @@
 {
-  "Comment": "Addi Conv GCLID: Google Ads -> S3/Athena -> RDS",
-  "StartAt": "RunGlueJobAthena",
+  "Comment": "Addi Conv GCLID: Google Ads -> S3/Athena -> RDS (매일 07:00 KST, 전날 데이터)",
+  "StartAt": "CheckDateInput",
   "States": {
+    "CheckDateInput": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.date",
+          "IsPresent": true,
+          "Next": "RunGlueJobAthena"
+        }
+      ],
+      "Default": "GetDate"
+    },
+    "GetDate": {
+      "Type": "Pass",
+      "Parameters": {
+        "date.$": "States.ArrayGetItem(States.StringSplit($$.Execution.StartTime, 'T'), 0)"
+      },
+      "Next": "RunGlueJobAthena"
+    },
     "RunGlueJobAthena": {
       "Type": "Task",
       "Resource": "arn:aws:states:::glue:startJobRun.sync",
       "Parameters": {
-        "JobName": "glue_job_addi_conv_gclid",
+        "JobName": "addi_conv_gclid_youtube_test",
         "Arguments": {
           "--start_date.$": "$.date",
           "--end_date.$": "$.date"
