@@ -28,8 +28,11 @@ def lambda_handler(event, context):
 
 
     export_data = ExportData(db_cluster_name=db_cluster_name, db_name=db_name)
-    for table in tables:        
-        export_data.proc_all(table_name=table)
+    for table in tables:
+        if isinstance(table, dict):
+            export_data.proc_all(table_name=table['name'], alias=table.get('alias'))
+        else:
+            export_data.proc_all(table_name=table)
     export_data.disconnect_db()
 
     for crawler_name in crawler_names:

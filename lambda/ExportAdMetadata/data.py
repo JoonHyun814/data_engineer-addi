@@ -18,7 +18,7 @@ class ExportData:
         self.db_name=db_name
         self.conn = self.connect_db()
 
-    def proc_all(self, table_name: str):
+    def proc_all(self, table_name: str, alias: str = None):
         try:
             def clean_text_field(text):
                 if pd.isna(text) or not isinstance(text, str):
@@ -30,13 +30,14 @@ class ExportData:
                 text = ' '.join(text.split())
                 return text
             current = datetime.now(dateutil.tz.gettz('Asia/Seoul'))
-            lambda_file_path = f"/tmp/{self.db_name}_{table_name}_{str(current)}.csv"
+            s3_name = alias if alias else table_name
+            lambda_file_path = f"/tmp/{self.db_name}_{s3_name}_{str(current)}.csv"
             target_bucket='ptbwa-propfit'
-            target_file_path = f"aws_rds/{self.db_cluster_name}/{self.db_name}/{table_name}"
+            target_file_path = f"aws_rds/{self.db_cluster_name}/{self.db_name}/{s3_name}"
 
             logger.info(f"Table Name: {table_name}")
             logger.info(f"Lambda Temp File Path: {lambda_file_path}")
-            logger.info(f"Target Path: s3://{target_bucket}/{target_file_path}/{table_name}.csv")
+            logger.info(f"Target Path: s3://{target_bucket}/{target_file_path}/{s3_name}.csv")
 
             # 매핑 정보 조회 쿼리 실행
             
@@ -70,8 +71,8 @@ class ExportData:
             # if self.db_name == 'addi' and table_name == 'code':
             #     df.to_csv(lambda_file_path, sep="|", index=False)        
             # else :
-            df.to_csv(lambda_file_path, sep="\t", index=False)        
-            s3.upload_file(lambda_file_path, target_bucket, f'{target_file_path}/{table_name}.csv')
+            df.to_csv(lambda_file_path, sep="\t", index=False)
+            s3.upload_file(lambda_file_path, target_bucket, f'{target_file_path}/{s3_name}.csv')
 
             
         except Exception as e:
@@ -102,6 +103,9 @@ class ExportData:
                 region_name = "ap-northeast-2"
             elif self.db_cluster_name=="database-addi" and self.db_name=="addi":
                 secret_name = "rds-addi"
+                region_name = "ap-northeast-2"
+            elif self.db_cluster_name=="database-de" and self.db_name=="prod_data_service":
+                secret_name = "database_de"
                 region_name = "ap-northeast-2"
             else:
                 raise ValueError("DB 연결 정보를 찾을 수 없습니다")
