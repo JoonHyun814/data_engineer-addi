@@ -69,7 +69,8 @@ while current_date <= END_DATE:
             metrics.interactions,
             metrics.impressions,
             metrics.clicks,
-            metrics.conversions
+            metrics.conversions,
+            metrics.video_trueview_views
         FROM campaign
         WHERE
             segments.date = '{date_str}'
@@ -89,6 +90,7 @@ while current_date <= END_DATE:
                 "interactions": row.metrics.interactions,
                 "clicks": row.metrics.clicks,
                 "conversions": row.metrics.conversions,
+                "trueviews": row.metrics.video_trueview_views,
                 "created_at": created_at,
                 "year": current_date.strftime("%Y"),
                 "month": current_date.strftime("%m"),
@@ -125,6 +127,7 @@ else:
       interactions BIGINT,
       clicks BIGINT,
       conversions DOUBLE,
+      trueviews BIGINT,
       created_at STRING
     )
     PARTITIONED BY (year STRING, month STRING, day STRING)
