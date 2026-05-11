@@ -12,7 +12,7 @@ WITH gtm AS (
         ev,
         ip
     FROM "prod-ptbwa-dw"."gtm_logs"
-    WHERE SUBSTR(log_time, 1, 10) = DATE_FORMAT(DATE_ADD('day', -1, CURRENT_DATE), '%Y/%m/%d')
+    WHERE SUBSTR(log_time, 1, 10) = '{date_slash}'
 ),
 gclid_list AS (
     SELECT

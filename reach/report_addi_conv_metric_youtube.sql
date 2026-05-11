@@ -18,7 +18,7 @@ aggregated AS (
     FROM "prod_addi_conv"."addi_conv_metric_youtube" metric
     LEFT JOIN info
         ON CAST(info.cmp_you_no AS BIGINT) = metric.campaign_no
-    WHERE metric.date = DATE_FORMAT(DATE_ADD('day', -1, CURRENT_DATE), '%Y-%m-%d')
+    WHERE metric.date = '{date}'
     GROUP BY
         info.cmp_no,
         metric.campaign_no,

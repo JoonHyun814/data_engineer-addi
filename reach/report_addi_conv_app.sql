@@ -17,7 +17,7 @@ base AS (
         ON cmp_list.cmp_no = TRY_CAST(NULLIF(TRIM(third.cmp), '') AS BIGINT)
     WHERE 1=1
         AND NULLIF(TRIM(third.ip), '') IS NOT NULL
-        AND SUBSTR(third.created_at, 1, 10) = date_format(current_date - INTERVAL '1' DAY, '%Y-%m-%d')
+        AND SUBSTR(third.created_at, 1, 10) = '{date}'
 ),
 daily AS (
     SELECT

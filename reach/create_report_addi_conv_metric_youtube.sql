@@ -1,6 +1,6 @@
 CREATE TABLE "prod_addi_conv"."report_addi_conv_metric_youtube"
 WITH (
-    external_location = 's3://ptbwa-athena/prod_addi_conv/report_addi_conv_metric_youtube/',
+    external_location = 's3://ptbwa-da/prod/prod_addi_conv/report_addi_conv_metric_youtube/',
     format = 'PARQUET',
     write_compression = 'SNAPPY',
     partitioned_by = ARRAY['year', 'month', 'day']
