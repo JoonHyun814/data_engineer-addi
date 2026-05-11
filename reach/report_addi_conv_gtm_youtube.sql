@@ -1,0 +1,72 @@
+INSERT INTO "prod_addi_conv"."report_addi_conv_gtm_youtube"
+WITH gtm AS (
+    SELECT
+        DATE_FORMAT(
+            DATE_PARSE(SUBSTR(log_time, 1, 10), '%Y/%m/%d'),
+            '%Y-%m-%d'
+        ) AS dt,
+        pid,
+        log_time,
+        REGEXP_EXTRACT(url, 'utm_campaign=([^&]+)', 1) AS utm_campaign,
+        gclid,
+        ev,
+        ip
+    FROM "prod-ptbwa-dw"."gtm_logs"
+    WHERE SUBSTR(log_time, 1, 10) = DATE_FORMAT(DATE_ADD('day', -1, CURRENT_DATE), '%Y/%m/%d')
+),
+gclid_list AS (
+    SELECT
+        cmp_you_no,
+        gclid
+    FROM "prod_addi_conv"."addi_conv_gclid_youtube"
+),
+gclid_raw AS (
+    SELECT
+        gtm.dt,
+        info.cmp_no,
+        gtm.pid,
+        info.cmp_you_no,
+        gtm.ev,
+        gtm.ip
+    FROM gtm
+    INNER JOIN gclid_list gcl
+        ON gcl.gclid = gtm.gclid
+    LEFT JOIN "prod_addi_conv"."addi_conv_info" info
+        ON info.cmp_you_no = CAST(gcl.cmp_you_no AS VARCHAR)
+),
+utm_raw AS (
+    SELECT
+        gtm.dt,
+        info.cmp_no,
+        gtm.pid,
+        info.cmp_you_no,
+        gtm.ev,
+        gtm.ip
+    FROM gtm
+    LEFT JOIN "prod_addi_conv"."addi_conv_info" info
+        ON info.pixel_id = gtm.pid
+       AND info.cmp_you_no = gtm.utm_campaign
+    WHERE info.cmp_no IS NOT NULL
+),
+result_raw AS (
+    SELECT * FROM gclid_raw
+    UNION ALL
+    SELECT * FROM utm_raw
+)
+SELECT
+    CAST(dt AS DATE) AS dt,
+    cmp_no,
+    pid,
+    cmp_you_no,
+    ev,
+    COUNT(DISTINCT ip) AS daily_unique_ip
+FROM result_raw
+WHERE cmp_no IS NOT NULL
+GROUP BY
+    1, 2, 3, 4, 5
+ORDER BY
+    dt,
+    cmp_no,
+    pid,
+    cmp_you_no,
+    ev;
