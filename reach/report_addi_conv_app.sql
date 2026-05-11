@@ -1,18 +1,19 @@
+INSERT INTO "prod_addi_conv"."report_addi_conv_app"
 WITH cmp_list AS (
-    SELECT DISTINCT 
+    SELECT DISTINCT
         cmp_no
     FROM "prod_addi_conv"."addi_conv_info"
 ),
 base AS (
     SELECT
-        SUBSTR(third.created_at, 1, 10) AS dt, 
+        SUBSTR(third.created_at, 1, 10) AS dt,
         third.tracker,
         third.cmp,
         third.event,
         third.ip,
         TRY_CAST(NULLIF(TRIM(third.revenue), '') AS DOUBLE) AS revenue
     FROM "prod-ptbwa-dw"."postback_thirdparty_log" third
-    INNER JOIN cmp_list 
+    INNER JOIN cmp_list
         ON cmp_list.cmp_no = TRY_CAST(NULLIF(TRIM(third.cmp), '') AS BIGINT)
     WHERE 1=1
         AND NULLIF(TRIM(third.ip), '') IS NOT NULL
@@ -30,12 +31,14 @@ daily AS (
     GROUP BY 1, 2, 3, 4
 )
 SELECT
-    dt AS Date,
     tracker,
     cmp,
     event,
+    dt,
     daily_unique_ip,
-    revenue
+    revenue,
+    SUBSTR(dt, 1, 4) AS year,
+    SUBSTR(dt, 6, 2) AS month,
+    SUBSTR(dt, 9, 2) AS day
 FROM daily
-ORDER BY 1, 2, 3, 4
-;
+ORDER BY dt, tracker, cmp, event;

@@ -2,7 +2,8 @@ CREATE TABLE "prod_addi_conv"."report_addi_conv_gtm_youtube"
 WITH (
     external_location = 's3://ptbwa-da/prod/prod_addi_conv/report_addi_conv_gtm_youtube/',
     format = 'PARQUET',
-    write_compression = 'SNAPPY'
+    write_compression = 'SNAPPY',
+    partitioned_by = ARRAY['year', 'month', 'day']
 ) AS
 WITH gtm AS (
     SELECT
@@ -57,21 +58,33 @@ result_raw AS (
     SELECT * FROM gclid_raw
     UNION ALL
     SELECT * FROM utm_raw
+),
+aggregated AS (
+    SELECT
+        cmp_no,
+        pid,
+        cmp_you_no,
+        ev,
+        dt,
+        COUNT(DISTINCT ip) AS daily_unique_ip
+    FROM result_raw
+    WHERE cmp_no IS NOT NULL
+    GROUP BY
+        cmp_no,
+        pid,
+        cmp_you_no,
+        ev,
+        dt
 )
 SELECT
-    CAST(dt AS DATE) AS dt,
     cmp_no,
     pid,
     cmp_you_no,
     ev,
-    COUNT(DISTINCT ip) AS daily_unique_ip
-FROM result_raw
-WHERE cmp_no IS NOT NULL
-GROUP BY
-    1, 2, 3, 4, 5
-ORDER BY
-    dt,
-    cmp_no,
-    pid,
-    cmp_you_no,
-    ev;
+    CAST(dt AS DATE) AS dt,
+    daily_unique_ip,
+    SUBSTR(dt, 1, 4) AS year,
+    SUBSTR(dt, 6, 2) AS month,
+    SUBSTR(dt, 9, 2) AS day
+FROM aggregated
+ORDER BY dt, cmp_no, pid, cmp_you_no, ev;

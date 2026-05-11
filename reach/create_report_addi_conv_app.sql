@@ -2,7 +2,8 @@ CREATE TABLE "prod_addi_conv"."report_addi_conv_app"
 WITH (
     external_location = 's3://ptbwa-da/prod/prod_addi_conv/report_addi_conv_app/',
     format = 'PARQUET',
-    write_compression = 'SNAPPY'
+    write_compression = 'SNAPPY',
+    partitioned_by = ARRAY['year', 'month', 'day']
 ) AS
 WITH cmp_list AS (
     SELECT DISTINCT
@@ -36,11 +37,14 @@ daily AS (
     GROUP BY 1, 2, 3, 4
 )
 SELECT
-    dt AS Date,
     tracker,
     cmp,
     event,
+    dt,
     daily_unique_ip,
-    revenue
+    revenue,
+    SUBSTR(dt, 1, 4) AS year,
+    SUBSTR(dt, 6, 2) AS month,
+    SUBSTR(dt, 9, 2) AS day
 FROM daily
-ORDER BY 1, 2, 3, 4;
+ORDER BY dt, tracker, cmp, event;
