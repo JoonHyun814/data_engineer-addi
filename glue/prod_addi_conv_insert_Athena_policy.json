@@ -2,31 +2,7 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "S3GlueScript",
-      "Effect": "Allow",
-      "Action": [
-        "s3:GetObject"
-      ],
-      "Resource": [
-        "arn:aws:s3:::aws-glue-assets-170217667865-ap-northeast-2/scripts/*"
-      ]
-    },
-    {
-      "Sid": "S3GlueAssets",
-      "Effect": "Allow",
-      "Action": [
-        "s3:GetObject",
-        "s3:PutObject",
-        "s3:DeleteObject",
-        "s3:ListBucket"
-      ],
-      "Resource": [
-        "arn:aws:s3:::aws-glue-assets-170217667865-ap-northeast-2",
-        "arn:aws:s3:::aws-glue-assets-170217667865-ap-northeast-2/*"
-      ]
-    },
-    {
-      "Sid": "S3DataBucketDa",
+      "Sid": "S3FullAccess",
       "Effect": "Allow",
       "Action": [
         "s3:GetObject",
@@ -35,40 +11,7 @@
         "s3:ListBucket",
         "s3:GetBucketLocation"
       ],
-      "Resource": [
-        "arn:aws:s3:::ptbwa-da",
-        "arn:aws:s3:::ptbwa-da/prod/*"
-      ]
-    },
-    {
-      "Sid": "S3SourceBucketPropfit",
-      "Effect": "Allow",
-      "Action": [
-        "s3:GetObject",
-        "s3:ListBucket",
-        "s3:GetBucketLocation"
-      ],
-      "Resource": [
-        "arn:aws:s3:::propfit-bid-logs",
-        "arn:aws:s3:::propfit-bid-logs/*",
-        "arn:aws:s3:::cookie-match",
-        "arn:aws:s3:::cookie-match/*"
-      ]
-    },
-    {
-      "Sid": "S3DataBucketAthena",
-      "Effect": "Allow",
-      "Action": [
-        "s3:GetObject",
-        "s3:PutObject",
-        "s3:DeleteObject",
-        "s3:ListBucket",
-        "s3:GetBucketLocation"
-      ],
-      "Resource": [
-        "arn:aws:s3:::ptbwa-athena",
-        "arn:aws:s3:::ptbwa-athena/*"
-      ]
+      "Resource": "*"
     },
     {
       "Sid": "AthenaQuery",
@@ -85,7 +28,7 @@
       ]
     },
     {
-      "Sid": "GlueCatalog",
+      "Sid": "GlueCatalogFullAccess",
       "Effect": "Allow",
       "Action": [
         "glue:GetDatabase",
@@ -102,14 +45,7 @@
         "glue:GetPartitions",
         "glue:BatchGetPartition"
       ],
-      "Resource": [
-        "arn:aws:glue:ap-northeast-2:170217667865:catalog",
-        "arn:aws:glue:ap-northeast-2:170217667865:database/default",
-        "arn:aws:glue:ap-northeast-2:170217667865:database/prod_addi_conv",
-        "arn:aws:glue:ap-northeast-2:170217667865:table/prod_addi_conv/*",
-        "arn:aws:glue:ap-northeast-2:170217667865:database/prod-ptbwa-dw",
-        "arn:aws:glue:ap-northeast-2:170217667865:table/prod-ptbwa-dw/*"
-      ]
+      "Resource": "*"
     },
     {
       "Sid": "EC2VpcAccess",
