@@ -1,5 +1,5 @@
 {
-  "Comment": "Addi Conv GAD YouTube: GCLID + Metric 병렬 적재 (매일 07:00 KST, 전날 데이터)",
+  "Comment": "Addi Conv GAD YouTube: GCLID + Metric 병렬 적재 후 Report 병렬 적재 (매일 07:00 KST, 전날 데이터)",
   "StartAt": "CheckDateInput",
   "States": {
     "CheckDateInput": {
@@ -68,6 +68,127 @@
                 "Arguments": {
                   "--start_date.$": "$.start_date",
                   "--end_date.$": "$.end_date"
+                }
+              },
+              "ResultPath": null,
+              "End": true
+            }
+          }
+        }
+      ],
+      "ResultPath": null,
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "JobFailed"
+        }
+      ],
+      "Next": "RunInsertParallel"
+    },
+    "RunInsertParallel": {
+      "Type": "Parallel",
+      "Branches": [
+        {
+          "Comment": "Insert report_addi_conv_metric_youtube",
+          "StartAt": "RunInsertMetricYoutube",
+          "States": {
+            "RunInsertMetricYoutube": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::glue:startJobRun.sync",
+              "Parameters": {
+                "JobName": "prod_addi_conv_insert_Athena",
+                "Arguments": {
+                  "--s3_query_path": "s3://ptbwa-da/prod/prod_addi_conv/query/report_addi_conv_metric_youtube.sql",
+                  "--athena_table": "report_addi_conv_metric_youtube"
+                }
+              },
+              "ResultPath": null,
+              "Next": "RunRdbMetricYoutube"
+            },
+            "RunRdbMetricYoutube": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::glue:startJobRun.sync",
+              "Parameters": {
+                "JobName": "insert-athena-data-to-rdb",
+                "Arguments": {
+                  "--date.$": "$.start_date",
+                  "--athena_result_base_path": "s3://ptbwa-da/prod/prod_addi_conv/report_addi_conv_metric_youtube",
+                  "--athena_db": "prod_addi_conv",
+                  "--athena_table": "report_addi_conv_metric_youtube",
+                  "--rdb_db": "addi",
+                  "--rdb_table": "report_addi_conv_metric_youtube"
+                }
+              },
+              "ResultPath": null,
+              "End": true
+            }
+          }
+        },
+        {
+          "Comment": "Insert report_addi_conv_gtm_youtube",
+          "StartAt": "RunInsertGtmYoutube",
+          "States": {
+            "RunInsertGtmYoutube": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::glue:startJobRun.sync",
+              "Parameters": {
+                "JobName": "prod_addi_conv_insert_Athena",
+                "Arguments": {
+                  "--s3_query_path": "s3://ptbwa-da/prod/prod_addi_conv/query/report_addi_conv_gtm_youtube.sql",
+                  "--athena_table": "report_addi_conv_gtm_youtube"
+                }
+              },
+              "ResultPath": null,
+              "Next": "RunRdbGtmYoutube"
+            },
+            "RunRdbGtmYoutube": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::glue:startJobRun.sync",
+              "Parameters": {
+                "JobName": "insert-athena-data-to-rdb",
+                "Arguments": {
+                  "--date.$": "$.start_date",
+                  "--athena_result_base_path": "s3://ptbwa-da/prod/prod_addi_conv/report_addi_conv_gtm_youtube",
+                  "--athena_db": "prod_addi_conv",
+                  "--athena_table": "report_addi_conv_gtm_youtube",
+                  "--rdb_db": "addi",
+                  "--rdb_table": "report_addi_conv_gtm_youtube"
+                }
+              },
+              "ResultPath": null,
+              "End": true
+            }
+          }
+        },
+        {
+          "Comment": "Insert report_addi_conv_app",
+          "StartAt": "RunInsertApp",
+          "States": {
+            "RunInsertApp": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::glue:startJobRun.sync",
+              "Parameters": {
+                "JobName": "prod_addi_conv_insert_Athena",
+                "Arguments": {
+                  "--s3_query_path": "s3://ptbwa-da/prod/prod_addi_conv/query/report_addi_conv_app.sql",
+                  "--athena_table": "report_addi_conv_app"
+                }
+              },
+              "ResultPath": null,
+              "Next": "RunRdbApp"
+            },
+            "RunRdbApp": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::glue:startJobRun.sync",
+              "Parameters": {
+                "JobName": "insert-athena-data-to-rdb",
+                "Arguments": {
+                  "--date.$": "$.start_date",
+                  "--athena_result_base_path": "s3://ptbwa-da/prod/prod_addi_conv/report_addi_conv_app",
+                  "--athena_db": "prod_addi_conv",
+                  "--athena_table": "report_addi_conv_app",
+                  "--rdb_db": "addi",
+                  "--rdb_table": "report_addi_conv_app"
                 }
               },
               "ResultPath": null,
