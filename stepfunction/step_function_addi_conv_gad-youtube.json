@@ -74,6 +74,27 @@
               "End": true
             }
           }
+        },
+        {
+          "Comment": "RDS to Athena Full Refresh",
+          "StartAt": "RunRDStoAthenaFullRefresh",
+          "States": {
+            "RunRDStoAthenaFullRefresh": {
+              "Type": "Task",
+              "Resource": "arn:aws:lambda:ap-northeast-2:170217667865:function:RDStoAthena_FullRefresh",
+              "Parameters": {
+                "secret_name": "database_addi",
+                "db_name": "addi",
+                "table_name": "addi_conv_info",
+                "glue_db": "prod_addi_conv",
+                "glue_table": "addi_conv_info",
+                "s3_bucket": "ptbwa-da",
+                "s3_prefix": "prod/addi_conv_info"
+              },
+              "ResultPath": null,
+              "End": true
+            }
+          }
         }
       ],
       "ResultPath": null,
@@ -198,6 +219,27 @@
                   "--athena_table": "report_addi_conv_app",
                   "--rdb_db": "addi",
                   "--rdb_table": "report_addi_conv_app"
+                }
+              },
+              "ResultPath": null,
+              "End": true
+            }
+          }
+        },
+        {
+          "Comment": "Insert raw_conv_web",
+          "StartAt": "RunInsertRawConvWeb",
+          "States": {
+            "RunInsertRawConvWeb": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::glue:startJobRun.sync",
+              "Parameters": {
+                "JobName": "prod_addi_conv_insert_Athena",
+                "Arguments": {
+                  "--s3_query_path": "s3://ptbwa-da/prod/prod_addi_conv/query/raw_conv_web.sql",
+                  "--athena_table": "raw_conv_web",
+                  "--start_date.$": "$.start_date",
+                  "--end_date.$": "$.end_date"
                 }
               },
               "ResultPath": null,
