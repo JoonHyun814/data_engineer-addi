@@ -17,10 +17,10 @@ aggregated AS (
         metric.campaign_no,
         metric.campaign_name,
         metric.date,
-        SUM(metric.impressions) AS impressions,
-        SUM(metric.trueviews) AS trueviews,
-        SUM(metric.clicks) AS clicks,
-        SUM(metric.conversions) AS conversions
+        COALESCE(SUM(metric.impressions), 0) AS impressions,
+        COALESCE(SUM(metric.trueviews), 0) AS trueviews,
+        COALESCE(SUM(metric.clicks), 0) AS clicks,
+        COALESCE(SUM(metric.conversions), 0) AS conversions
     FROM "prod_addi_conv"."addi_conv_metric_youtube" metric
     LEFT JOIN info
         ON CAST(info.cmp_you_no AS BIGINT) = metric.campaign_no
@@ -32,9 +32,9 @@ aggregated AS (
         metric.date
 )
 SELECT
-    cmp_no,
+    COALESCE(cmp_no, 0) AS cmp_no,
     campaign_no,
-    campaign_name,
+    COALESCE(campaign_name, '') AS campaign_name,
     date,
     impressions,
     trueviews,

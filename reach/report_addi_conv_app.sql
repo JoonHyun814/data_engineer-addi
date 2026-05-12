@@ -26,7 +26,7 @@ daily AS (
         cmp,
         event,
         COUNT(DISTINCT ip) AS daily_unique_ip,
-        SUM(revenue) AS revenue
+        COALESCE(SUM(revenue), 0) AS revenue
     FROM base
     GROUP BY 1, 2, 3, 4
 )
