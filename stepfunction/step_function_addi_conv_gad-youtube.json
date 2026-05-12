@@ -92,6 +92,21 @@
                 "s3_prefix": "prod/addi_conv_info"
               },
               "ResultPath": null,
+              "Next": "RunInsertRawConvWeb"
+            },
+            "RunInsertRawConvWeb": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::glue:startJobRun.sync",
+              "Parameters": {
+                "JobName": "prod_addi_conv_insert_Athena",
+                "Arguments": {
+                  "--s3_query_path": "s3://ptbwa-da/prod/prod_addi_conv/query/raw_conv_web.sql",
+                  "--athena_table": "raw_conv_web",
+                  "--start_date.$": "$.start_date",
+                  "--end_date.$": "$.end_date"
+                }
+              },
+              "ResultPath": null,
               "End": true
             }
           }
@@ -100,7 +115,9 @@
       "ResultPath": null,
       "Catch": [
         {
-          "ErrorEquals": ["States.ALL"],
+          "ErrorEquals": [
+            "States.ALL"
+          ],
           "Next": "JobFailed"
         }
       ],
@@ -227,19 +244,37 @@
           }
         },
         {
-          "Comment": "Insert raw_conv_web",
-          "StartAt": "RunInsertRawConvWeb",
+          "Comment": "Insert raw_conv_web → report_addi_conv_gtm_web",
+          "StartAt": "RunInsertGtmWeb",
           "States": {
-            "RunInsertRawConvWeb": {
+            "RunInsertGtmWeb": {
               "Type": "Task",
               "Resource": "arn:aws:states:::glue:startJobRun.sync",
               "Parameters": {
                 "JobName": "prod_addi_conv_insert_Athena",
                 "Arguments": {
-                  "--s3_query_path": "s3://ptbwa-da/prod/prod_addi_conv/query/raw_conv_web.sql",
-                  "--athena_table": "raw_conv_web",
+                  "--s3_query_path": "s3://ptbwa-da/prod/prod_addi_conv/query/report_addi_conv_gtm_web.sql",
+                  "--athena_table": "report_addi_conv_gtm_web",
                   "--start_date.$": "$.start_date",
                   "--end_date.$": "$.end_date"
+                }
+              },
+              "ResultPath": null,
+              "Next": "RunRdbGtmWeb"
+            },
+            "RunRdbGtmWeb": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::glue:startJobRun.sync",
+              "Parameters": {
+                "JobName": "insert-athena-data-to-rdb-range",
+                "Arguments": {
+                  "--start_date.$": "$.start_date",
+                  "--end_date.$": "$.end_date",
+                  "--athena_result_base_path": "s3://ptbwa-da/prod/prod_addi_conv/report_addi_conv_gtm_web",
+                  "--athena_db": "prod_addi_conv",
+                  "--athena_table": "report_addi_conv_gtm_web",
+                  "--rdb_db": "addi",
+                  "--rdb_table": "report_addi_conv_gtm_web"
                 }
               },
               "ResultPath": null,
@@ -250,7 +285,9 @@
       ],
       "Catch": [
         {
-          "ErrorEquals": ["States.ALL"],
+          "ErrorEquals": [
+            "States.ALL"
+          ],
           "Next": "JobFailed"
         }
       ],
