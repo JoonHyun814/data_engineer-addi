@@ -99,7 +99,9 @@
                 "JobName": "prod_addi_conv_insert_Athena",
                 "Arguments": {
                   "--s3_query_path": "s3://ptbwa-da/prod/prod_addi_conv/query/report_addi_conv_metric_youtube.sql",
-                  "--athena_table": "report_addi_conv_metric_youtube"
+                  "--athena_table": "report_addi_conv_metric_youtube",
+                  "--start_date.$": "$.start_date",
+                  "--end_date.$": "$.end_date"
                 }
               },
               "ResultPath": null,
@@ -109,9 +111,10 @@
               "Type": "Task",
               "Resource": "arn:aws:states:::glue:startJobRun.sync",
               "Parameters": {
-                "JobName": "insert-athena-data-to-rdb",
+                "JobName": "insert-athena-data-to-rdb-range",
                 "Arguments": {
-                  "--date.$": "$.start_date",
+                  "--start_date.$": "$.start_date",
+                  "--end_date.$": "$.end_date",
                   "--athena_result_base_path": "s3://ptbwa-da/prod/prod_addi_conv/report_addi_conv_metric_youtube",
                   "--athena_db": "prod_addi_conv",
                   "--athena_table": "report_addi_conv_metric_youtube",
@@ -135,7 +138,9 @@
                 "JobName": "prod_addi_conv_insert_Athena",
                 "Arguments": {
                   "--s3_query_path": "s3://ptbwa-da/prod/prod_addi_conv/query/report_addi_conv_gtm_youtube.sql",
-                  "--athena_table": "report_addi_conv_gtm_youtube"
+                  "--athena_table": "report_addi_conv_gtm_youtube",
+                  "--start_date.$": "$.start_date",
+                  "--end_date.$": "$.end_date"
                 }
               },
               "ResultPath": null,
@@ -145,9 +150,10 @@
               "Type": "Task",
               "Resource": "arn:aws:states:::glue:startJobRun.sync",
               "Parameters": {
-                "JobName": "insert-athena-data-to-rdb",
+                "JobName": "insert-athena-data-to-rdb-range",
                 "Arguments": {
-                  "--date.$": "$.start_date",
+                  "--start_date.$": "$.start_date",
+                  "--end_date.$": "$.end_date",
                   "--athena_result_base_path": "s3://ptbwa-da/prod/prod_addi_conv/report_addi_conv_gtm_youtube",
                   "--athena_db": "prod_addi_conv",
                   "--athena_table": "report_addi_conv_gtm_youtube",
@@ -171,7 +177,9 @@
                 "JobName": "prod_addi_conv_insert_Athena",
                 "Arguments": {
                   "--s3_query_path": "s3://ptbwa-da/prod/prod_addi_conv/query/report_addi_conv_app.sql",
-                  "--athena_table": "report_addi_conv_app"
+                  "--athena_table": "report_addi_conv_app",
+                  "--start_date.$": "$.start_date",
+                  "--end_date.$": "$.end_date"
                 }
               },
               "ResultPath": null,
@@ -181,9 +189,10 @@
               "Type": "Task",
               "Resource": "arn:aws:states:::glue:startJobRun.sync",
               "Parameters": {
-                "JobName": "insert-athena-data-to-rdb",
+                "JobName": "insert-athena-data-to-rdb-range",
                 "Arguments": {
-                  "--date.$": "$.start_date",
+                  "--start_date.$": "$.start_date",
+                  "--end_date.$": "$.end_date",
                   "--athena_result_base_path": "s3://ptbwa-da/prod/prod_addi_conv/report_addi_conv_app",
                   "--athena_db": "prod_addi_conv",
                   "--athena_table": "report_addi_conv_app",
