@@ -1,4 +1,8 @@
+-- 특정 구간 데이터 적재
+-- 날짜 범위를 수정 후 실행하세요 (start_date_slash ~ end_date_slash, YYYY/MM/DD 형식)
+
 INSERT INTO "prod_addi_conv"."report_addi_conv_gtm_youtube"
+
 WITH gtm AS (
     SELECT
         DATE_FORMAT(
@@ -16,7 +20,7 @@ WITH gtm AS (
         END AS ev,
         ip
     FROM "prod-ptbwa-dw"."gtm_logs"
-    WHERE SUBSTR(log_time, 1, 10) = '{date_slash}'
+    WHERE SUBSTR(log_time, 1, 10) BETWEEN '2026/05/01' AND '2026/05/10'
 ),
 gclid_list AS (
     SELECT

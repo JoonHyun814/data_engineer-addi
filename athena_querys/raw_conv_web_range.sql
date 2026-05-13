@@ -1,12 +1,15 @@
--- 통합 CTV Reach → Mall 방문 전환 집계 (Addi + Abi + ODM)
--- 파티션: year, month, day (Hive-style, 컬럼 순서 마지막에 위치)
+-- [STEP 2] 구간 데이터 적재
+-- 날짜 범위를 수정 후 실행하세요 (YYYY-MM-DD 형식)
+-- STEP 1 DELETE 실행 완료 후 실행하세요
+
 INSERT INTO "prod_addi_conv"."raw_conv_web"
 
 WITH base_date AS (
-    -- {date} 플레이스홀더: Glue 잡에서 처리 날짜로 치환됨 (YYYY-MM-DD)
     SELECT
-        DATE '{date}' AS target_dt,
-        CAST(date_format(DATE '{date}', '%Y%m%d') AS INTEGER) AS target_yyyymmdd
+        DATE '2026-05-01'                                                        AS start_dt,
+        DATE '2026-05-10'                                                        AS end_dt,
+        CAST(date_format(DATE '2026-05-01', '%Y%m%d') AS INTEGER)                AS start_yyyymmdd,
+        CAST(date_format(DATE '2026-05-10', '%Y%m%d') AS INTEGER)                AS end_yyyymmdd
 ),
 
 info AS (
@@ -36,7 +39,7 @@ mall AS (
         AND CAST(
             CONCAT(g.year, LPAD(g.month, 2, '0'), LPAD(g.day, 2, '0'))
             AS INTEGER
-        ) = b.target_yyyymmdd
+        ) BETWEEN b.start_yyyymmdd AND b.end_yyyymmdd
         AND NULLIF(TRIM(g.ip), '') IS NOT NULL
 ),
 
@@ -64,7 +67,7 @@ addi_mapping AS (
         AND CAST(
             CONCAT(post.year, LPAD(post.month, 2, '0'), LPAD(post.day, 2, '0'))
             AS INTEGER
-        ) <= b.target_yyyymmdd
+        ) <= b.end_yyyymmdd
         AND NULLIF(TRIM(post.request_ip), '') IS NOT NULL
 ),
 
@@ -92,7 +95,7 @@ addi_dedup AS (
         pid,
         ev,
         ROW_NUMBER() OVER (
-            PARTITION BY cmp_no, mall_ip
+            PARTITION BY cmp_no, mall_dt, mall_ip
             ORDER BY post_datetime ASC, mall_datetime ASC
         ) AS rn
     FROM addi_result
@@ -122,7 +125,7 @@ post_base AS (
         AND CAST(
             CONCAT(post.year, LPAD(post.month, 2, '0'), LPAD(post.day, 2, '0'))
             AS INTEGER
-        ) <= b.target_yyyymmdd
+        ) <= b.end_yyyymmdd
         AND NULLIF(TRIM(post.ifa), '') IS NOT NULL
 ),
 
@@ -215,7 +218,7 @@ abi_first_touch AS (
         pid,
         ev,
         ROW_NUMBER() OVER (
-            PARTITION BY cmp_no, mall_ip
+            PARTITION BY cmp_no, mall_dt, mall_ip
             ORDER BY post_datetime ASC, mall_datetime ASC
         ) AS rn
     FROM abi_result
@@ -281,7 +284,7 @@ odm_first_touch AS (
         pid,
         ev,
         ROW_NUMBER() OVER (
-            PARTITION BY cmp_no, mall_ip
+            PARTITION BY cmp_no, mall_dt, mall_ip
             ORDER BY post_datetime ASC, mall_datetime ASC
         ) AS rn
     FROM odm_result
