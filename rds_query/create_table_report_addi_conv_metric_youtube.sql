@@ -6,7 +6,7 @@ CREATE TABLE `report_addi_conv_metric_youtube` (
   `impressions`   BIGINT        NULL,
   `trueviews`     BIGINT        NULL,
   `clicks`        BIGINT        NULL,
-  `conversions`   BIGINT        NULL,
+  `conversions`   DOUBLE        NULL,
   `year`          CHAR(4)       NOT NULL,
   `month`         CHAR(2)       NOT NULL,
   `day`           CHAR(2)       NOT NULL,
