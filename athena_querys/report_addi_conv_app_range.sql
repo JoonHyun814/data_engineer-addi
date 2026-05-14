@@ -1,3 +1,6 @@
+-- 특정 구간 데이터 적재
+-- 날짜 범위를 수정 후 실행하세요 (YYYY-MM-DD 형식)
+
 INSERT INTO "prod_addi_conv"."report_addi_conv_app"
 WITH cmp_list AS (
     SELECT
@@ -20,7 +23,7 @@ base AS (
         ON cmp_list.cmp_no = TRY_CAST(NULLIF(TRIM(third.cmp), '') AS BIGINT)
     WHERE 1=1
         AND NULLIF(TRIM(third.ip), '') IS NOT NULL
-        AND SUBSTR(third.created_at, 1, 10) = '{date}'
+        AND SUBSTR(third.created_at, 1, 10) BETWEEN '2026-01-01' AND '2026-05-13'
 ),
 daily AS (
     SELECT
