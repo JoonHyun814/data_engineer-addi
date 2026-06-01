@@ -1,0 +1,42 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "LambdaInvoke",
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunction",
+      "Resource": [
+        "arn:aws:lambda:ap-northeast-2:170217667865:function:RDStoAthena_FullRefresh",
+        "arn:aws:lambda:ap-northeast-2:170217667865:function:RDStoAthena_FullRefresh:*",
+        "arn:aws:lambda:ap-northeast-2:170217667865:function:DateUtil:*",
+        "arn:aws:lambda:ap-northeast-2:170217667865:function:DateUtil"
+      ]
+    },
+    
+    {
+      "Sid": "GlueJobControl",
+      "Effect": "Allow",
+      "Action": [
+        "glue:StartJobRun",
+        "glue:GetJobRun",
+        "glue:GetJobRuns",
+        "glue:BatchStopJobRun"
+      ],
+      "Resource": [
+          "*"
+      ]
+    },
+    {
+        "Effect": "Allow",
+        "Action": [
+            "xray:PutTraceSegments",
+            "xray:PutTelemetryRecords",
+            "xray:GetSamplingRules",
+            "xray:GetSamplingTargets"
+        ],
+        "Resource": [
+            "*"
+        ]
+    }
+  ]
+}

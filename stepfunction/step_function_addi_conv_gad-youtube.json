@@ -128,15 +128,32 @@
       "Branches": [
         {
           "Comment": "Insert report_addi_conv_metric_youtube",
-          "StartAt": "RunInsertMetricYoutube",
+          "StartAt": "SetMetricYoutubeDateRange",
           "States": {
+            "SetMetricYoutubeDateRange": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "DateUtil",
+                "Payload": {
+                  "end_date.$": "$.end_date",
+                  "date_diff": 14
+                }
+              },
+              "ResultSelector": {
+                "start_date.$": "$.Payload.start_date",
+                "end_date.$": "$.Payload.end_date"
+              },
+              "ResultPath": "$",
+              "Next": "RunInsertMetricYoutube"
+            },
             "RunInsertMetricYoutube": {
               "Type": "Task",
               "Resource": "arn:aws:states:::glue:startJobRun.sync",
               "Parameters": {
-                "JobName": "prod_addi_conv_insert_Athena",
+                "JobName": "prod_addi_conv_insert_Athena_range",
                 "Arguments": {
-                  "--s3_query_path": "s3://ptbwa-da/prod/prod_addi_conv/query/report_addi_conv_metric_youtube.sql",
+                  "--s3_query_path": "s3://ptbwa-da/prod/prod_addi_conv/query/report_addi_conv_metric_youtube_range.sql",
                   "--athena_table": "report_addi_conv_metric_youtube",
                   "--start_date.$": "$.start_date",
                   "--end_date.$": "$.end_date"
