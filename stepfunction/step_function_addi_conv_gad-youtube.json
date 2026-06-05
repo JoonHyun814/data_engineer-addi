@@ -76,7 +76,7 @@
           }
         },
         {
-          "Comment": "RDS to Athena Full Refresh",
+          "Comment": "RDS to Athena Full Refresh → raw_conv_web + raw_conv_web_imp 병렬 적재",
           "StartAt": "RunRDStoAthenaFullRefresh",
           "States": {
             "RunRDStoAthenaFullRefresh": {
@@ -92,20 +92,54 @@
                 "s3_prefix": "prod/addi_conv_info"
               },
               "ResultPath": null,
-              "Next": "RunInsertRawConvWeb"
+              "Next": "RunInsertRawConvParallel"
             },
-            "RunInsertRawConvWeb": {
-              "Type": "Task",
-              "Resource": "arn:aws:states:::glue:startJobRun.sync",
-              "Parameters": {
-                "JobName": "prod_addi_conv_insert_Athena",
-                "Arguments": {
-                  "--s3_query_path": "s3://ptbwa-da/prod/prod_addi_conv/query/raw_conv_web.sql",
-                  "--athena_table": "raw_conv_web",
-                  "--start_date.$": "$.start_date",
-                  "--end_date.$": "$.end_date"
+            "RunInsertRawConvParallel": {
+              "Type": "Parallel",
+              "Branches": [
+                {
+                  "Comment": "raw_conv_web",
+                  "StartAt": "RunInsertRawConvWeb",
+                  "States": {
+                    "RunInsertRawConvWeb": {
+                      "Type": "Task",
+                      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+                      "Parameters": {
+                        "JobName": "prod_addi_conv_insert_Athena",
+                        "Arguments": {
+                          "--s3_query_path": "s3://ptbwa-da/prod/prod_addi_conv/query/raw_conv_web.sql",
+                          "--athena_table": "raw_conv_web",
+                          "--start_date.$": "$.start_date",
+                          "--end_date.$": "$.end_date"
+                        }
+                      },
+                      "ResultPath": null,
+                      "End": true
+                    }
+                  }
+                },
+                {
+                  "Comment": "raw_conv_web_imp",
+                  "StartAt": "RunInsertRawConvWebImp",
+                  "States": {
+                    "RunInsertRawConvWebImp": {
+                      "Type": "Task",
+                      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+                      "Parameters": {
+                        "JobName": "prod_addi_conv_insert_Athena",
+                        "Arguments": {
+                          "--s3_query_path": "s3://ptbwa-da/prod/prod_addi_conv/query/raw_conv_web_imp.sql",
+                          "--athena_table": "raw_conv_web_imp",
+                          "--start_date.$": "$.start_date",
+                          "--end_date.$": "$.end_date"
+                        }
+                      },
+                      "ResultPath": null,
+                      "End": true
+                    }
+                  }
                 }
-              },
+              ],
               "ResultPath": null,
               "End": true
             }
@@ -292,6 +326,27 @@
                   "--athena_table": "report_addi_conv_gtm_web",
                   "--rdb_db": "addi",
                   "--rdb_table": "report_addi_conv_gtm_web"
+                }
+              },
+              "ResultPath": null,
+              "End": true
+            }
+          }
+        },
+        {
+          "Comment": "Insert raw_conv_web_imp → report_addi_conv_gtm_web_imp",
+          "StartAt": "RunInsertGtmWebImp",
+          "States": {
+            "RunInsertGtmWebImp": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::glue:startJobRun.sync",
+              "Parameters": {
+                "JobName": "prod_addi_conv_insert_Athena",
+                "Arguments": {
+                  "--s3_query_path": "s3://ptbwa-da/prod/prod_addi_conv/query/report_addi_conv_gtm_web_imp.sql",
+                  "--athena_table": "report_addi_conv_gtm_web_imp",
+                  "--start_date.$": "$.start_date",
+                  "--end_date.$": "$.end_date"
                 }
               },
               "ResultPath": null,
