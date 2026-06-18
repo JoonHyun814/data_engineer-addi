@@ -36,11 +36,25 @@ def _safe_int(v):
     try: return int(v)
     except (TypeError, ValueError): return None
 
+GRADE_TO_CODE = {
+    1: "B001_003_001",
+    2: "B001_003_002",
+    3: "B001_003_003",
+    4: "B001_003_004",
+}
+
 def classify_pm10(pm10: float) -> str:
     for lo, hi, code in PM10_THRESHOLDS:
         if lo <= pm10 <= hi:
             return code
     return "B001_003_004"
+
+def resolve_weather_code(pm10_grade, pm10_grade1h, pm10_value) -> str:
+    if pm10_grade in GRADE_TO_CODE:
+        return GRADE_TO_CODE[pm10_grade]
+    if pm10_grade1h in GRADE_TO_CODE:
+        return GRADE_TO_CODE[pm10_grade1h]
+    return classify_pm10(pm10_value) if pm10_value is not None else "B001_003_001"
 
 def fetch_dust(api_key: str, sido: str, rep_station: str) -> dict:
     res = requests.get(
@@ -62,8 +76,10 @@ def fetch_dust(api_key: str, sido: str, rep_station: str) -> dict:
     if target is None:
         raise RuntimeError("유효한 데이터 없음")
 
-    pm10 = _safe_float(target.get("pm10Value"))
-    code = classify_pm10(pm10) if pm10 is not None else "B001_003_001"
+    pm10        = _safe_float(target.get("pm10Value"))
+    pm10_grade  = _safe_int(target.get("pm10Grade"))
+    pm10_grade1h = _safe_int(target.get("pm10Grade1h"))
+    code        = resolve_weather_code(pm10_grade, pm10_grade1h, pm10)
 
     return {
         "weather_code":  code,
