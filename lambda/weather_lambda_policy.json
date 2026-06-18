@@ -18,7 +18,9 @@
         "secretsmanager:GetSecretValue"
       ],
       "Resource": [
-        "arn:aws:secretsmanager:*:*:secret:weather_API-*"
+        "arn:aws:secretsmanager:*:*:secret:weather_API-*",
+        "arn:aws:secretsmanager:*:*:secret:database-1-*",
+        "arn:aws:secretsmanager:*:*:secret:database_addi-*"
       ]
     },
     {
@@ -28,11 +30,41 @@
         "s3:GetObject",
         "s3:PutObject",
         "s3:DeleteObject",
-        "s3:ListBucket"
+        "s3:ListBucket",
+        "s3:GetBucketLocation"
       ],
       "Resource": [
         "arn:aws:s3:::ptbwa-da",
-        "arn:aws:s3:::ptbwa-da/prod/weather/*"
+        "arn:aws:s3:::ptbwa-da/prod/weather/*",
+        "arn:aws:s3:::ptbwa-da/athena-results/*"
+      ]
+    },
+    {
+      "Sid": "AthenaAccess",
+      "Effect": "Allow",
+      "Action": [
+        "athena:StartQueryExecution",
+        "athena:GetQueryExecution",
+        "athena:GetQueryResults",
+        "athena:StopQueryExecution",
+        "athena:ListQueryExecutions"
+      ],
+      "Resource": "arn:aws:athena:*:*:workgroup/*"
+    },
+    {
+      "Sid": "GlueAccess",
+      "Effect": "Allow",
+      "Action": [
+        "glue:GetTable",
+        "glue:GetPartitions",
+        "glue:GetDatabase",
+        "glue:BatchCreatePartition",
+        "glue:CreatePartition"
+      ],
+      "Resource": [
+        "arn:aws:glue:*:*:catalog",
+        "arn:aws:glue:*:*:database/weather",
+        "arn:aws:glue:*:*:table/weather/*"
       ]
     }
   ]
