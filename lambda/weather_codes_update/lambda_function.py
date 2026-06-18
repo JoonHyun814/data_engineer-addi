@@ -4,6 +4,7 @@ import json
 import time
 import boto3
 import pymysql
+from typing import Callable
 from datetime import datetime, timedelta, timezone
 
 S3_BUCKET      = "ptbwa-da"
@@ -11,7 +12,9 @@ REGIONS_KEY    = "prod/weather/regions/regions.csv"
 ATHENA_OUTPUT  = "s3://ptbwa-da/athena-results/weather_codes_update/"
 KST = timezone(timedelta(hours=9))
 
-# 1일 lookback으로 최신 파티션 기준 가져오기, special_alert는 7일
+# 1일 lookback으로 최신 파티션 기준 가져오기
+# special_alert: 상태는 area_weather_codes에 누적 저장되므로, 매 실행 시
+# 직전 ~1일 내 신규 발표/해제 이벤트만 가져와 기존 상태에 diff로 적용한다
 ATHENA_QUERIES = {
     "forecast": """
         SELECT region_id, weather_code, discomfort_code
@@ -43,23 +46,40 @@ ATHENA_QUERIES = {
         ) t
         WHERE rn = 1
     """,
-    # 특보: (region_id, keyword) 기준 최신 이벤트가 '발표'인 것만
+    # 특보: (region_id, keyword) 기준 최신 이벤트 1건 (발표/해제 모두 반환, 적용은 Python에서 diff로 처리)
     "special_alert": """
-        SELECT region_id, weather_code
+        SELECT region_id, weather_code, status
         FROM (
             SELECT region_id, weather_code, status,
                    ROW_NUMBER() OVER (PARTITION BY region_id, keyword ORDER BY tmFc DESC) AS rn
             FROM weather.special_alert
-            WHERE dt >= date_format(date_add('day', -7, current_date), '%Y%m%d')
+            WHERE dt >= date_format(date_add('day', -1, current_date), '%Y%m%d')
         ) t
-        WHERE rn = 1 AND status = '발표'
+        WHERE rn = 1
     """,
 }
 
+MSCK_TABLES = ["weather.forecast", "weather.uv", "weather.fine_dust", "weather.special_alert"]
+
+RegionCodeResolver = Callable[[int], "str | None"]
+
+
+# ---- AWS / DB 연결 ----------------------------------------------------
 
 def get_secret(name):
     client = boto3.client('secretsmanager')
     return json.loads(client.get_secret_value(SecretId=name)['SecretString'])
+
+def connect_db(secret: dict, default_dbname: str, **kwargs):
+    return pymysql.connect(
+        host=secret['host'], user=secret['username'], password=secret['password'],
+        db=secret.get('dbname', default_dbname),
+        port=int(secret.get('port', 3306)),
+        **kwargs,
+    )
+
+
+# ---- region_id → region_code 매핑 --------------------------------------
 
 def load_regions_csv(s3) -> dict[int, str]:
     """region_id → adm_code"""
@@ -73,7 +93,18 @@ def load_region_code_map(conn) -> dict[str, str]:
         cur.execute("SELECT region_code, adm_code FROM regions WHERE adm_code IS NOT NULL")
         return {str(row['adm_code']): row['region_code'] for row in cur.fetchall()}
 
-MSCK_TABLES = ["weather.forecast", "weather.uv", "weather.fine_dust", "weather.special_alert"]
+def build_region_code_resolver(s3, conn1) -> RegionCodeResolver:
+    region_id_to_adm = load_regions_csv(s3)
+    adm_to_region_code = load_region_code_map(conn1)
+
+    def region_code(region_id: int) -> "str | None":
+        adm = region_id_to_adm.get(region_id)
+        return adm_to_region_code.get(str(adm)) if adm else None
+
+    return region_code
+
+
+# ---- Athena ------------------------------------------------------------
 
 def run_msck(athena, table: str):
     resp = athena.start_query_execution(
@@ -124,9 +155,69 @@ def run_athena_query(athena, sql: str) -> list[list[str]]:
     return rows
 
 
+# ---- 카테고리별 weather_code 수집 ----------------------------------------
+
+WeatherCodeRow = tuple[str, str]  # (region_code, weather_code)
+
+def collect_codes(athena, query_key: str, region_code: RegionCodeResolver) -> list[WeatherCodeRow]:
+    """단일 weather_code 컬럼을 갖는 쿼리(fine_dust, uv)를 (region_code, weather_code) 리스트로 변환"""
+    rows = []
+    for region_id, wcode in run_athena_query(athena, ATHENA_QUERIES[query_key]):
+        rc = region_code(int(region_id))
+        if rc and wcode:
+            rows.append((rc, wcode))
+    return rows
+
+def collect_forecast_codes(athena, region_code: RegionCodeResolver) -> list[WeatherCodeRow]:
+    """B001_001 일반날씨 & B001_002 불쾌지수 — forecast 1회 쿼리로 함께 처리"""
+    rows = []
+    for region_id, wcode, dcode in run_athena_query(athena, ATHENA_QUERIES["forecast"]):
+        rc = region_code(int(region_id))
+        if rc is None:
+            continue
+        if wcode:
+            rows.append((rc, wcode))
+        if dcode:
+            rows.append((rc, dcode))
+    return rows
+
+def load_active_alerts(conn_addi) -> set[WeatherCodeRow]:
+    """B001_005 특보의 현재 상태 = area_weather_codes에 이미 저장된 값"""
+    with conn_addi.cursor() as cur:
+        cur.execute(
+            "SELECT region_code, weather_code FROM area_weather_codes WHERE LEFT(weather_code, 9) = 'B001_005_'"
+        )
+        return {(row[0], row[1]) for row in cur.fetchall()}
+
+def apply_special_alert_diff(athena, region_code: RegionCodeResolver, active_alerts: set[WeatherCodeRow]) -> None:
+    """신규 발표/해제 이벤트를 기존 상태(active_alerts)에 in-place로 적용"""
+    for region_id, wcode, status in run_athena_query(athena, ATHENA_QUERIES["special_alert"]):
+        rc = region_code(int(region_id))
+        if not rc or not wcode:
+            continue
+        key = (rc, wcode)
+        if status == '발표':
+            active_alerts.add(key)
+        elif status == '해제':
+            active_alerts.discard(key)
+
+
+# ---- RDS 적재 ------------------------------------------------------------
+
+def save_weather_data(conn_addi, weather_data: list[WeatherCodeRow]) -> None:
+    with conn_addi.cursor() as cur:
+        cur.execute("TRUNCATE TABLE area_weather_codes")
+        cur.executemany(
+            "INSERT INTO area_weather_codes (region_code, weather_code, moddt) VALUES (%s, %s, NOW())",
+            weather_data,
+        )
+
+
+# ---- 엔트리포인트 ---------------------------------------------------------
+
 def lambda_handler(event, context):
-    db1_secret   = get_secret('database-1')
-    addi_secret  = get_secret('database_addi')
+    db1_secret  = get_secret('database-1')
+    addi_secret = get_secret('database_addi')
 
     s3     = boto3.client('s3')
     athena = boto3.client('athena')
@@ -135,74 +226,31 @@ def lambda_handler(event, context):
     for table in MSCK_TABLES:
         run_msck(athena, table)
 
-    region_id_to_adm = load_regions_csv(s3)
-
-    conn1 = pymysql.connect(
-        host=db1_secret['host'], user=db1_secret['username'],
-        password=db1_secret['password'],
-        db=db1_secret.get('dbname', 'ptbwa_propfit'),
-        port=int(db1_secret.get('port', 3306)),
-        cursorclass=pymysql.cursors.DictCursor,
-    )
+    conn1 = connect_db(db1_secret, 'ptbwa_propfit', cursorclass=pymysql.cursors.DictCursor)
     try:
-        adm_to_region_code = load_region_code_map(conn1)
+        region_code = build_region_code_resolver(s3, conn1)
     finally:
         conn1.close()
 
-    def region_code(region_id: int) -> str | None:
-        adm = region_id_to_adm.get(region_id)
-        return adm_to_region_code.get(str(adm)) if adm else None
-
-    weather_data: list[tuple[str, str]] = []
-
-    # B001_001 일반날씨 & B001_002 불쾌지수 — forecast 1회 쿼리로 함께 처리
-    print("Querying forecast...")
-    for row in run_athena_query(athena, ATHENA_QUERIES["forecast"]):
-        region_id, wcode, dcode = int(row[0]), row[1], row[2]
-        rc = region_code(region_id)
-        if rc is None:
-            continue
-        if wcode:
-            weather_data.append((rc, wcode))
-        if dcode:
-            weather_data.append((rc, dcode))
-
-    # B001_003 미세먼지
-    print("Querying fine_dust...")
-    for row in run_athena_query(athena, ATHENA_QUERIES["fine_dust"]):
-        rc = region_code(int(row[0]))
-        if rc and row[1]:
-            weather_data.append((rc, row[1]))
-
-    # B001_004 자외선
-    print("Querying uv...")
-    for row in run_athena_query(athena, ATHENA_QUERIES["uv"]):
-        rc = region_code(int(row[0]))
-        if rc and row[1]:
-            weather_data.append((rc, row[1]))
-
-    # B001_005 특보 — 현재 발효 중인 건만 (발표 상태)
-    print("Querying special_alert...")
-    for row in run_athena_query(athena, ATHENA_QUERIES["special_alert"]):
-        rc = region_code(int(row[0]))
-        if rc and row[1]:
-            weather_data.append((rc, row[1]))
-
-    print(f"Total weather_data rows to insert: {len(weather_data)}")
-
-    conn_addi = pymysql.connect(
-        host=addi_secret['host'], user=addi_secret['username'],
-        password=addi_secret['password'],
-        db=addi_secret.get('dbname', 'addi'),
-        port=int(addi_secret.get('port', 3306)),
-    )
+    conn_addi = connect_db(addi_secret, 'addi')
     try:
-        with conn_addi.cursor() as cur:
-            cur.execute("TRUNCATE TABLE area_weather_codes")
-            cur.executemany(
-                "INSERT INTO area_weather_codes (region_code, weather_code, moddt) VALUES (%s, %s, NOW())",
-                weather_data,
-            )
+        active_alerts = load_active_alerts(conn_addi)
+
+        print("Querying forecast...")
+        weather_data = collect_forecast_codes(athena, region_code)
+
+        print("Querying fine_dust...")
+        weather_data += collect_codes(athena, "fine_dust", region_code)
+
+        print("Querying uv...")
+        weather_data += collect_codes(athena, "uv", region_code)
+
+        print("Querying special_alert...")
+        apply_special_alert_diff(athena, region_code, active_alerts)
+        weather_data += list(active_alerts)
+
+        print(f"Total weather_data rows to insert: {len(weather_data)}")
+        save_weather_data(conn_addi, weather_data)
         conn_addi.commit()
     except Exception as e:
         conn_addi.rollback()
