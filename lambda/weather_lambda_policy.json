@@ -22,23 +22,17 @@
       ]
     },
     {
-      "Sid": "S3RegionsRead",
+      "Sid": "S3WeatherFullAccess",
       "Effect": "Allow",
       "Action": [
-        "s3:GetObject"
-      ],
-      "Resource": "arn:aws:s3:::ptbwa-da/prod/weather/regions/*"
-    },
-    {
-      "Sid": "S3WeatherWrite",
-      "Effect": "Allow",
-      "Action": [
-        "s3:PutObject"
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:ListBucket"
       ],
       "Resource": [
-        "arn:aws:s3:::ptbwa-da/prod/weather/uv/*",
-        "arn:aws:s3:::ptbwa-da/prod/weather/forecast/*",
-        "arn:aws:s3:::ptbwa-da/prod/weather/fine_dust/*"
+        "arn:aws:s3:::ptbwa-da",
+        "arn:aws:s3:::ptbwa-da/prod/weather/*"
       ]
     }
   ]

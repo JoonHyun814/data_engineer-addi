@@ -1,5 +1,5 @@
 {
-  "Comment": "날씨 데이터 병렬 수집 — 매 3의 배수 시 30분 실행 (UV / 단기예보 / 미세먼지)",
+  "Comment": "날씨 데이터 병렬 수집 — 매 3의 배수 시 30분 실행 (UV / 단기예보 / 미세먼지 / 특보)",
   "StartAt": "ParallelWeatherCollection",
   "States": {
     "ParallelWeatherCollection": {
@@ -119,6 +119,45 @@
               "Type": "Fail",
               "Error": "FineDustLambdaFailed",
               "Cause": "weather_fine_dust Lambda 실행 실패"
+            }
+          }
+        },
+        {
+          "StartAt": "SpecialAlert",
+          "States": {
+            "SpecialAlert": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "arn:aws:lambda:ap-northeast-2:170217667865:function:weather_special_alert",
+                "Payload": {}
+              },
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException",
+                    "Lambda.SdkClientException",
+                    "Lambda.TooManyRequestsException"
+                  ],
+                  "IntervalSeconds": 10,
+                  "MaxAttempts": 2,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "ResultPath": "$.error",
+                  "Next": "SpecialAlertFailed"
+                }
+              ],
+              "End": true
+            },
+            "SpecialAlertFailed": {
+              "Type": "Fail",
+              "Error": "SpecialAlertLambdaFailed",
+              "Cause": "weather_special_alert Lambda 실행 실패"
             }
           }
         }
