@@ -1,0 +1,129 @@
+{
+  "Comment": "날씨 데이터 병렬 수집 — 매 3의 배수 시 30분 실행 (UV / 단기예보 / 미세먼지)",
+  "StartAt": "ParallelWeatherCollection",
+  "States": {
+    "ParallelWeatherCollection": {
+      "Type": "Parallel",
+      "Branches": [
+        {
+          "StartAt": "UV",
+          "States": {
+            "UV": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "arn:aws:lambda:ap-northeast-2:170217667865:function:weather_uv",
+                "Payload": {}
+              },
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException",
+                    "Lambda.SdkClientException",
+                    "Lambda.TooManyRequestsException"
+                  ],
+                  "IntervalSeconds": 10,
+                  "MaxAttempts": 2,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "ResultPath": "$.error",
+                  "Next": "UVFailed"
+                }
+              ],
+              "End": true
+            },
+            "UVFailed": {
+              "Type": "Fail",
+              "Error": "UVLambdaFailed",
+              "Cause": "weather_uv Lambda 실행 실패"
+            }
+          }
+        },
+        {
+          "StartAt": "Forecast",
+          "States": {
+            "Forecast": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "arn:aws:lambda:ap-northeast-2:170217667865:function:weather_fcst",
+                "Payload": {}
+              },
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException",
+                    "Lambda.SdkClientException",
+                    "Lambda.TooManyRequestsException"
+                  ],
+                  "IntervalSeconds": 10,
+                  "MaxAttempts": 2,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "ResultPath": "$.error",
+                  "Next": "ForecastFailed"
+                }
+              ],
+              "End": true
+            },
+            "ForecastFailed": {
+              "Type": "Fail",
+              "Error": "ForecastLambdaFailed",
+              "Cause": "weather_fcst Lambda 실행 실패"
+            }
+          }
+        },
+        {
+          "StartAt": "FineDust",
+          "States": {
+            "FineDust": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "arn:aws:lambda:ap-northeast-2:170217667865:function:weather_fine_dust",
+                "Payload": {}
+              },
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException",
+                    "Lambda.SdkClientException",
+                    "Lambda.TooManyRequestsException"
+                  ],
+                  "IntervalSeconds": 10,
+                  "MaxAttempts": 2,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "ResultPath": "$.error",
+                  "Next": "FineDustFailed"
+                }
+              ],
+              "End": true
+            },
+            "FineDustFailed": {
+              "Type": "Fail",
+              "Error": "FineDustLambdaFailed",
+              "Cause": "weather_fine_dust Lambda 실행 실패"
+            }
+          }
+        }
+      ],
+      "End": true
+    }
+  }
+}

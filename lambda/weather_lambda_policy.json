@@ -1,0 +1,45 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CloudWatchLogsAccess",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "arn:aws:logs:*:*:*"
+    },
+    {
+      "Sid": "SecretsManagerAccess",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:GetSecretValue"
+      ],
+      "Resource": [
+        "arn:aws:secretsmanager:*:*:secret:weather_API-*"
+      ]
+    },
+    {
+      "Sid": "S3RegionsRead",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject"
+      ],
+      "Resource": "arn:aws:s3:::ptbwa-da/prod/weather/regions/*"
+    },
+    {
+      "Sid": "S3WeatherWrite",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::ptbwa-da/prod/weather/uv/*",
+        "arn:aws:s3:::ptbwa-da/prod/weather/forecast/*",
+        "arn:aws:s3:::ptbwa-da/prod/weather/fine_dust/*"
+      ]
+    }
+  ]
+}
