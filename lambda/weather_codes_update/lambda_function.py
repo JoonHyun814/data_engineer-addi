@@ -13,8 +13,9 @@ ATHENA_OUTPUT  = "s3://ptbwa-da/athena-results/weather_codes_update/"
 KST = timezone(timedelta(hours=9))
 
 # 1일 lookback으로 최신 파티션 기준 가져오기
-# special_alert: 상태는 area_weather_codes에 누적 저장되므로, 매 실행 시
-# 직전 ~1일 내 신규 발표/해제 이벤트만 가져와 기존 상태에 diff로 적용한다
+# special_alert: raw 테이블이 dedup된 append-only 이벤트 로그이므로, 매 실행 시
+# 전체 이력에서 (stnId, areaCode, warnVar)별 최신 유효 이벤트를 계산해 B001_005 상태를
+# 완전히 재계산한다 (다른 카테고리와 동일하게 매 실행 전체 재계산 — DB와의 diff 불필요)
 ATHENA_QUERIES = {
     "forecast": """
         SELECT region_id, weather_code, discomfort_code
@@ -46,22 +47,58 @@ ATHENA_QUERIES = {
         ) t
         WHERE rn = 1
     """,
-    # 특보: (region_id, keyword) 기준 최신 이벤트 1건 (발표/해제 모두 반환, 적용은 Python에서 diff로 처리)
+    # 특보: (stnId, areaCode, warnVar) 기준 최신 유효 이벤트 1건 — dt 필터 없이 전체 이력에서 계산.
+    # raw 테이블에는 동일 이벤트(stnId/areaCode/warnVar/tmFc/tmSeq)가 재조회로 여러 번
+    # 적재될 수 있으므로(예: cancel 0→1 정정) fetched_at 기준으로 최신 버전을 먼저 고른 뒤,
+    # 취소(cancel=1)된 버전은 버리고, 남은 버전 중 가장 최근 발표(tmFc/tmSeq)를 채택한다.
+    # 전체 이력을 스캔해야 1일 lookback 밖에서 시작된 장기 특보(건조/한파 등)도 놓치지 않는다.
     "special_alert": """
-        SELECT region_id, weather_code, status
+        SELECT stnId, areaCode, warnVar, command
         FROM (
-            SELECT region_id, weather_code, status,
-                   ROW_NUMBER() OVER (PARTITION BY region_id, keyword ORDER BY tmFc DESC) AS rn
-            FROM weather.special_alert
-            WHERE dt >= date_format(date_add('day', -1, current_date), '%Y%m%d')
-        ) t
-        WHERE rn = 1
+            SELECT stnId, areaCode, warnVar, command, tmFc, tmSeq,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY stnId, areaCode, warnVar
+                       ORDER BY tmFc DESC, tmSeq DESC
+                   ) AS event_rn
+            FROM (
+                SELECT stnId, areaCode, warnVar, command, cancel, tmFc, tmSeq,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY stnId, areaCode, warnVar, tmFc, tmSeq
+                           ORDER BY fetched_at DESC
+                       ) AS version_rn
+                FROM weather.special_alert
+            ) versioned
+            WHERE version_rn = 1 AND cancel <> '1'
+        ) latest_valid
+        WHERE event_rn = 1
     """,
 }
 
 MSCK_TABLES = ["weather.forecast", "weather.uv", "weather.fine_dust", "weather.special_alert"]
 
 RegionCodeResolver = Callable[[int], "str | None"]
+
+# getPwnCd warnVar(특보종류) → 한글 라벨
+WARN_VAR_LABELS = {
+    "1": "강풍", "2": "호우", "3": "한파", "4": "건조",
+    "5": "폭풍해일", "6": "풍랑", "7": "태풍", "8": "대설",
+    "9": "황사", "12": "폭염", "13": "열대야",
+}
+
+# 라벨 → B001_005_xxx (풍랑/폭풍해일/열대야 등은 아직 코드 미부여 — 매핑 없으면 스킵)
+WEATHER_CODE_MAP = {
+    "강풍": "B001_005_001",
+    "한파": "B001_005_002",
+    "폭염": "B001_005_003",
+    "황사": "B001_005_004",
+    "태풍": "B001_005_005",
+    "대설": "B001_005_006",
+    "호우": "B001_005_007",
+    "건조": "B001_005_008",
+}
+
+# getPwnCd command(발표코드): 1-발표, 2-해제, 3-연장, 6-정정, 7-변경발표, 8-변경해제
+LIFT_COMMANDS = {"2", "8"}
 
 
 # ---- AWS / DB 연결 ----------------------------------------------------
@@ -86,6 +123,15 @@ def load_regions_csv(s3) -> dict[int, str]:
     obj = s3.get_object(Bucket=S3_BUCKET, Key=REGIONS_KEY)
     content = obj['Body'].read().decode('utf-8-sig')
     return {int(r['id']): r['adm_code'] for r in csv.DictReader(io.StringIO(content))}
+
+def load_stn_to_region_ids(s3) -> dict[str, list[int]]:
+    """stn_id → region_id 목록 (특보는 stnId 단위로 발표되고, 한 관측소에 여러 region이 매핑될 수 있음)"""
+    obj = s3.get_object(Bucket=S3_BUCKET, Key=REGIONS_KEY)
+    content = obj['Body'].read().decode('utf-8-sig')
+    mapping: dict[str, list[int]] = {}
+    for r in csv.DictReader(io.StringIO(content)):
+        mapping.setdefault(r['stn_id'], []).append(int(r['id']))
+    return mapping
 
 def load_region_code_map(conn) -> dict[str, str]:
     """adm_code → region_code (RDS)"""
@@ -181,25 +227,36 @@ def collect_forecast_codes(athena, region_code: RegionCodeResolver) -> list[Weat
             rows.append((rc, dcode))
     return rows
 
-def load_active_alerts(conn_addi) -> set[WeatherCodeRow]:
-    """B001_005 특보의 현재 상태 = area_weather_codes에 이미 저장된 값"""
-    with conn_addi.cursor() as cur:
-        cur.execute(
-            "SELECT region_code, weather_code FROM area_weather_codes WHERE LEFT(weather_code, 9) = 'B001_005_'"
-        )
-        return {(row[0], row[1]) for row in cur.fetchall()}
+def collect_special_alert_codes(
+    athena,
+    region_code: RegionCodeResolver,
+    stn_to_region_ids: dict[str, list[int]],
+) -> list[WeatherCodeRow]:
+    """
+    B001_005 특보 — 전체 이력에서 (stnId, areaCode, warnVar)별 최신 유효 상태를 계산해
+    현재 발효 중인 (region_code, weather_code) 집합을 완전히 새로 만든다.
+    동일 stnId 아래 여러 areaCode가 있으면 하나라도 발표 중이면 활성으로 간주한다
+    (행 처리 순서에 결과가 좌우되지 않도록 active/lifted를 모았다가 한 번에 병합).
+    """
+    active: set[WeatherCodeRow] = set()
+    lifted: set[WeatherCodeRow] = set()
 
-def apply_special_alert_diff(athena, region_code: RegionCodeResolver, active_alerts: set[WeatherCodeRow]) -> None:
-    """신규 발표/해제 이벤트를 기존 상태(active_alerts)에 in-place로 적용"""
-    for region_id, wcode, status in run_athena_query(athena, ATHENA_QUERIES["special_alert"]):
-        rc = region_code(int(region_id))
-        if not rc or not wcode:
-            continue
-        key = (rc, wcode)
-        if status == '발표':
-            active_alerts.add(key)
-        elif status == '해제':
-            active_alerts.discard(key)
+    for stn_id, _area_code, warn_var, command in run_athena_query(athena, ATHENA_QUERIES["special_alert"]):
+        label = WARN_VAR_LABELS.get(str(warn_var))
+        wcode = WEATHER_CODE_MAP.get(label) if label else None
+        if not wcode:
+            continue   # 풍랑/폭풍해일/열대야 등 B001_005 코드가 아직 없는 특보종류는 스킵
+
+        is_lifted = str(command) in LIFT_COMMANDS
+        for region_id in stn_to_region_ids.get(stn_id, []):
+            rc = region_code(region_id)
+            if not rc:
+                continue
+            key = (rc, wcode)
+            (lifted if is_lifted else active).add(key)
+
+    active -= (lifted - active)
+    return list(active)
 
 
 # ---- RDS 적재 ------------------------------------------------------------
@@ -232,10 +289,10 @@ def lambda_handler(event, context):
     finally:
         conn1.close()
 
+    stn_to_region_ids = load_stn_to_region_ids(s3)
+
     conn_addi = connect_db(addi_secret, 'addi')
     try:
-        active_alerts = load_active_alerts(conn_addi)
-
         print("Querying forecast...")
         weather_data = collect_forecast_codes(athena, region_code)
 
@@ -246,8 +303,7 @@ def lambda_handler(event, context):
         weather_data += collect_codes(athena, "uv", region_code)
 
         print("Querying special_alert...")
-        apply_special_alert_diff(athena, region_code, active_alerts)
-        weather_data += list(active_alerts)
+        weather_data += collect_special_alert_codes(athena, region_code, stn_to_region_ids)
 
         print(f"Total weather_data rows to insert: {len(weather_data)}")
         save_weather_data(conn_addi, weather_data)

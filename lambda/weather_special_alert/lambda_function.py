@@ -1,56 +1,60 @@
-import io
-import csv
 import json
+import hashlib
 import boto3
 import requests
 from botocore.exceptions import ClientError
 from datetime import datetime, timedelta, timezone
 
-S3_BUCKET   = "ptbwa-da"
-REGIONS_KEY = "prod/weather/regions/regions.csv"
-STATE_KEY   = "prod/weather/special_alert/state/seen.json"
+S3_BUCKET  = "ptbwa-da"
+RAW_PREFIX = "prod/weather/special_alert"
+STATE_KEY  = f"{RAW_PREFIX}/state/seen.json"
 KST = timezone(timedelta(hours=9))
 
-WARNING_CODE_MAP = {
-    "강풍": "B001_005_001",
-    "한파": "B001_005_002",
-    "폭염": "B001_005_003",
-    "황사": "B001_005_004",
-    "태풍": "B001_005_005",
-    "대설": "B001_005_006",
-    "호우": "B001_005_007",
-    "건조": "B001_005_008",
-}
+LOOKBACK_DAYS  = 1    # 3시간 주기 대비 충분한 오버랩 — 한 번 누락돼도 다음 실행에서 재확보
+RETENTION_DAYS = 8    # API 최대 조회기간(6일)보다 여유있게 seen 상태 보존
 
-_URL = "http://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnList"
+# dedup 식별에 쓰는 필드만 — startTime/endTime/allEndTime 등 부가 필드 변동은 무시
+HASH_FIELDS = ("stnId", "areaCode", "warnVar", "warnStress", "command", "cancel", "tmFc", "tmSeq")
+
+_URL = "http://apis.data.go.kr/1360000/WthrWrnInfoService/getPwnCd"
 
 
 def get_secret(name):
     client = boto3.client('secretsmanager')
     return json.loads(client.get_secret_value(SecretId=name)['SecretString'])
 
-def load_regions(s3) -> list[dict]:
-    obj = s3.get_object(Bucket=S3_BUCKET, Key=REGIONS_KEY)
-    content = obj['Body'].read().decode('utf-8-sig')
-    return list(csv.DictReader(io.StringIO(content)))
-
-def load_seen(s3) -> set[str]:
+def load_seen(s3) -> dict[str, str]:
+    """raw item hash → 최초 수집일(YYYYMMDD). 중복 적재 방지용 상태."""
     try:
         obj = s3.get_object(Bucket=S3_BUCKET, Key=STATE_KEY)
-        return set(json.loads(obj['Body'].read().decode('utf-8')))
+        data = json.loads(obj['Body'].read().decode('utf-8'))
     except ClientError as e:
         if e.response['Error']['Code'] == 'NoSuchKey':
-            return set()
+            return {}
         raise
+    if not isinstance(data, dict):
+        # 구버전(getWthrWrnList) 상태 파일은 list 형식 — 호환되지 않으므로 폐기하고 새로 시작
+        return {}
+    return data
 
-def save_seen(s3, seen: set[str]):
+def save_seen(s3, seen: dict[str, str]):
     s3.put_object(
         Bucket=S3_BUCKET, Key=STATE_KEY,
-        Body=json.dumps(list(seen)).encode('utf-8'),
+        Body=json.dumps(seen, ensure_ascii=False).encode('utf-8'),
         ContentType='application/json',
     )
 
-def fetch_alerts_by_stn(api_key: str, stn_id: str) -> list[dict]:
+def prune_seen(seen: dict[str, str], now: datetime) -> dict[str, str]:
+    cutoff = (now - timedelta(days=RETENTION_DAYS)).strftime("%Y%m%d")
+    return {h: d for h, d in seen.items() if d >= cutoff}
+
+def item_hash(item: dict) -> str:
+    """이벤트 식별 필드만 정규화해 동일 이벤트 재적재를 막는 dedup 키 (cancel 변경 등 실제 상태 변화는 새 레코드로 적재)"""
+    subset = {k: item.get(k) for k in HASH_FIELDS}
+    canonical = json.dumps(subset, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(canonical.encode('utf-8')).hexdigest()
+
+def fetch_all_alerts(api_key: str, from_tm_fc: str, to_tm_fc: str) -> list[dict]:
     items = []
     page = 1
     while True:
@@ -61,29 +65,30 @@ def fetch_alerts_by_stn(api_key: str, stn_id: str) -> list[dict]:
                 "pageNo": page,
                 "numOfRows": 100,
                 "dataType": "JSON",
-                "stnId": stn_id,
+                "fromTmFc": from_tm_fc,
+                "toTmFc": to_tm_fc,
             },
             timeout=10,
         )
         res.raise_for_status()
-        body = res.json().get("response", {}).get("body", {})
-        total = int(body.get("totalCount", 0))
-        raw = body.get("items") or {}
+        data = res.json()
+        rc = data.get("response", {}).get("header", {}).get("resultCode", "??")
+        if rc not in ("00", "03"):   # 03 = 데이터 없음 (정상)
+            raise RuntimeError(data.get("response", {}).get("header", {}).get("resultMsg", rc))
+        body  = data.get("response", {}).get("body") or {}
+        total = int(body.get("totalCount", 0) or 0)
+        raw   = body.get("items") or {}
         if isinstance(raw, dict):
             raw = raw.get("item", [])
         if isinstance(raw, dict):
             raw = [raw]
         items.extend(raw or [])
-        if len(items) >= total or not raw:
+        if not raw or len(items) >= total:
             break
         page += 1
     return items
 
-def extract_keywords(title: str) -> list[tuple[str, str]]:
-    """title에서 매칭되는 모든 (code, keyword) 반환 — 복합 특보 대응"""
-    return [(code, kw) for kw, code in WARNING_CODE_MAP.items() if kw in title]
-
-def save_to_s3(s3, key: str, records: list[dict]):
+def save_raw(s3, key: str, records: list[dict]):
     body = "\n".join(json.dumps(r, ensure_ascii=False) for r in records)
     s3.put_object(Bucket=S3_BUCKET, Key=key, Body=body.encode('utf-8'),
                   ContentType='application/json')
@@ -96,62 +101,35 @@ def lambda_handler(event, context):
     now    = datetime.now(KST)
     dt_str = now.strftime("%Y%m%d")
     hr_str = f"{now.hour:02d}"
+    from_tm_fc = (now - timedelta(days=LOOKBACK_DAYS)).strftime("%Y%m%d")
+    to_tm_fc   = now.strftime("%Y%m%d")
 
-    s3      = boto3.client('s3')
-    regions = load_regions(s3)
-    seen    = load_seen(s3)
+    s3   = boto3.client('s3')
+    seen = load_seen(s3)
 
-    stn_to_regions: dict[str, list[dict]] = {}
-    for r in regions:
-        stn_to_regions.setdefault(r['stn_id'], []).append(r)
+    items = fetch_all_alerts(api_key, from_tm_fc, to_tm_fc)
+    print(f"fetched {len(items)} items ({from_tm_fc} ~ {to_tm_fc})")
 
-    records  = []
-    new_seen = set(seen)
+    new_records = []
+    for item in items:
+        h = item_hash(item)
+        if h in seen:
+            continue
+        record = dict(item)
+        record["fetched_at"] = now.isoformat()
+        new_records.append(record)
+        seen[h] = dt_str
 
-    for stn_id, stn_regions in stn_to_regions.items():
-        items = fetch_alerts_by_stn(api_key, stn_id)
-        print(f"stnId={stn_id}: {len(items)} items")
+    if new_records:
+        key = f"{RAW_PREFIX}/dt={dt_str}/hr={hr_str}/data.json"
+        save_raw(s3, key, new_records)
+        print(f"S3 saved: {key} ({len(new_records)} new, {len(items) - len(new_records)} duplicate skipped)")
+    else:
+        print("No new records")
 
-        for item in items:
-            title  = item.get("title", "")
-            tm_fc  = str(item.get("tmFc", ""))
-            tm_seq = str(item.get("tmSeq", ""))
-            status = "해제" if "해제" in title else "발표"
-
-            dedup_key = f"{stn_id}_{tm_seq}"
-            if dedup_key in seen:
-                continue
-
-            matched_keywords = extract_keywords(title)
-            if not matched_keywords:
-                print(f"No keyword match: stnId={stn_id}, title={title}")
-                new_seen.add(dedup_key)
-                continue
-
-            for code, keyword in matched_keywords:
-                for r in stn_regions:
-                    records.append({
-                        "region_id":    int(r['id']),
-                        "area_name":    r['area_name'],
-                        "stn_id":       stn_id,
-                        "weather_code": code,
-                        "keyword":      keyword,
-                        "status":       status,
-                        "title":        title,
-                        "tmFc":         tm_fc,
-                        "tmSeq":        tm_seq,
-                        "created_at":   now.isoformat(),
-                    })
-            new_seen.add(dedup_key)
-
-    if records:
-        key = f"prod/weather/special_alert/dt={dt_str}/hr={hr_str}/data.json"
-        save_to_s3(s3, key, records)
-        print(f"S3 saved: {key} ({len(records)} records)")
-
-    save_seen(s3, new_seen)
+    save_seen(s3, prune_seen(seen, now))
 
     return {
         "statusCode": 200,
-        "body": json.dumps({"special_alert": len(records)}),
+        "body": json.dumps({"fetched": len(items), "new": len(new_records)}),
     }
