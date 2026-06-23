@@ -48,6 +48,20 @@ def prune_seen(seen: dict[str, str], now: datetime) -> dict[str, str]:
     cutoff = (now - timedelta(days=RETENTION_DAYS)).strftime("%Y%m%d")
     return {h: d for h, d in seen.items() if d >= cutoff}
 
+def resolve_date_range(event: dict, now: datetime) -> tuple[str, str]:
+    """
+    조회기간 결정. 평소(스텝펑션 자동 실행)에는 event 없이 호출돼 기본값(LOOKBACK_DAYS=1일)을 쓴다.
+    수동 백필 등 특정 기간을 다시 조회해야 할 때는 event로 직접 지정할 수 있다:
+      {"fromTmFc": "20260601", "toTmFc": "20260610"}  -- 기간 직접 지정 (API 제약상 오늘로부터 최대 6일 전까지)
+      {"lookbackDays": 3}                              -- "오늘-N일 ~ 오늘"로 지정
+    """
+    from_tm_fc = event.get("fromTmFc")
+    to_tm_fc = event.get("toTmFc")
+    if from_tm_fc and to_tm_fc:
+        return from_tm_fc, to_tm_fc
+    lookback_days = int(event.get("lookbackDays", LOOKBACK_DAYS))
+    return (now - timedelta(days=lookback_days)).strftime("%Y%m%d"), now.strftime("%Y%m%d")
+
 def item_hash(item: dict) -> str:
     """이벤트 식별 필드만 정규화해 동일 이벤트 재적재를 막는 dedup 키 (cancel 변경 등 실제 상태 변화는 새 레코드로 적재)"""
     subset = {k: item.get(k) for k in HASH_FIELDS}
@@ -55,6 +69,12 @@ def item_hash(item: dict) -> str:
     return hashlib.sha256(canonical.encode('utf-8')).hexdigest()
 
 def fetch_all_alerts(api_key: str, from_tm_fc: str, to_tm_fc: str) -> list[dict]:
+    """
+    stnId 파라미터로 필터링하지 않는다 — getPwnCd 응답의 stnId는 지역 관측소 코드가 아니라
+    전국 어디든 항상 "108" 고정값으로 내려온다(실측 확인, 2026-06-23). 실제 지역 구분은
+    areaCode(특보구역코드)로만 가능하며, regions.csv에는 이 코드가 없어 region 매핑이 아직 없다.
+    그래서 지역 필터링/조인 없이 전국 단위 응답을 raw 그대로 적재한다.
+    """
     items = []
     page = 1
     while True:
@@ -93,6 +113,27 @@ def save_raw(s3, key: str, records: list[dict]):
     s3.put_object(Bucket=S3_BUCKET, Key=key, Body=body.encode('utf-8'),
                   ContentType='application/json')
 
+def register_partition(glue, dt: str, hr: str, location: str):
+    """
+    방금 적재한 dt/hr 파티션을 Glue Catalog에 즉시 등록 (MSCK REPAIR 불필요).
+    S3 적재는 이미 끝난 뒤라 데이터 자체는 안전하지만, 등록 실패(권한 등)를 조용히 넘기면
+    MSCK 백업이 없는 상태에서 해당 파티션이 계속 조회에서 빠진 채로 남을 수 있으므로
+    예외를 다시 던져 람다 실행을 실패로 표시한다 (CloudWatch 알람/재시도로 드러나도록).
+    """
+    try:
+        table = glue.get_table(DatabaseName="weather", Name="special_alert")["Table"]
+        sd = dict(table["StorageDescriptor"])
+        sd["Location"] = location
+        glue.create_partition(
+            DatabaseName="weather", TableName="special_alert",
+            PartitionInput={"Values": [dt, hr], "StorageDescriptor": sd},
+        )
+    except glue.exceptions.AlreadyExistsException:
+        pass
+    except Exception as e:
+        print(f"Partition registration failed (dt={dt}, hr={hr}): {e}")
+        raise
+
 
 def lambda_handler(event, context):
     api_secret = get_secret('weather_API')
@@ -101,10 +142,10 @@ def lambda_handler(event, context):
     now    = datetime.now(KST)
     dt_str = now.strftime("%Y%m%d")
     hr_str = f"{now.hour:02d}"
-    from_tm_fc = (now - timedelta(days=LOOKBACK_DAYS)).strftime("%Y%m%d")
-    to_tm_fc   = now.strftime("%Y%m%d")
+    from_tm_fc, to_tm_fc = resolve_date_range(event or {}, now)
 
     s3   = boto3.client('s3')
+    glue = boto3.client('glue')
     seen = load_seen(s3)
 
     items = fetch_all_alerts(api_key, from_tm_fc, to_tm_fc)
@@ -124,6 +165,7 @@ def lambda_handler(event, context):
         key = f"{RAW_PREFIX}/dt={dt_str}/hr={hr_str}/data.json"
         save_raw(s3, key, new_records)
         print(f"S3 saved: {key} ({len(new_records)} new, {len(items) - len(new_records)} duplicate skipped)")
+        register_partition(glue, dt_str, hr_str, f"s3://{S3_BUCKET}/{RAW_PREFIX}/dt={dt_str}/hr={hr_str}/")
     else:
         print("No new records")
 

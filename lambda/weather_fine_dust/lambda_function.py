@@ -104,6 +104,27 @@ def save_to_s3(s3, key: str, records: list[dict]):
     s3.put_object(Bucket=S3_BUCKET, Key=key, Body=body.encode('utf-8'),
                   ContentType='application/json')
 
+def register_partition(glue, dt: str, hr: str, location: str):
+    """
+    방금 적재한 dt/hr 파티션을 Glue Catalog에 즉시 등록 (MSCK REPAIR 불필요).
+    S3 적재는 이미 끝난 뒤라 데이터 자체는 안전하지만, 등록 실패(권한 등)를 조용히 넘기면
+    MSCK 백업이 없는 상태에서 해당 파티션이 계속 조회에서 빠진 채로 남을 수 있으므로
+    예외를 다시 던져 람다 실행을 실패로 표시한다 (CloudWatch 알람/재시도로 드러나도록).
+    """
+    try:
+        table = glue.get_table(DatabaseName="weather", Name="fine_dust")["Table"]
+        sd = dict(table["StorageDescriptor"])
+        sd["Location"] = location
+        glue.create_partition(
+            DatabaseName="weather", TableName="fine_dust",
+            PartitionInput={"Values": [dt, hr], "StorageDescriptor": sd},
+        )
+    except glue.exceptions.AlreadyExistsException:
+        pass
+    except Exception as e:
+        print(f"Partition registration failed (dt={dt}, hr={hr}): {e}")
+        raise
+
 def lambda_handler(event, context):
     api_secret = get_secret('weather_API')
     api_key    = api_secret['UV_API_KEY']
@@ -113,6 +134,7 @@ def lambda_handler(event, context):
     hr_str = f"{now.hour:02d}"
 
     s3      = boto3.client('s3')
+    glue    = boto3.client('glue')
     regions = load_regions(s3)
 
     records = []
@@ -140,6 +162,7 @@ def lambda_handler(event, context):
         key = f"prod/weather/fine_dust/dt={dt_str}/hr={hr_str}/data.json"
         save_to_s3(s3, key, records)
         print(f"S3 saved: {key} ({len(records)} records)")
+        register_partition(glue, dt_str, hr_str, f"s3://{S3_BUCKET}/prod/weather/fine_dust/dt={dt_str}/hr={hr_str}/")
 
     return {
         "statusCode": 200,

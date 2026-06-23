@@ -7,14 +7,15 @@ import pymysql
 from typing import Callable
 from datetime import datetime, timedelta, timezone
 
-S3_BUCKET      = "ptbwa-da"
-REGIONS_KEY    = "prod/weather/regions/regions.csv"
-ATHENA_OUTPUT  = "s3://ptbwa-da/athena-results/weather_codes_update/"
+S3_BUCKET        = "ptbwa-da"
+REGIONS_KEY      = "prod/weather/regions/regions.csv"
+AREA_CODE_KEY    = "prod/weather/regions_area_code/regions_area_code.csv"
+ATHENA_OUTPUT    = "s3://ptbwa-da/athena-results/weather_codes_update/"
 KST = timezone(timedelta(hours=9))
 
 # 1일 lookback으로 최신 파티션 기준 가져오기
 # special_alert: raw 테이블이 dedup된 append-only 이벤트 로그이므로, 매 실행 시
-# 전체 이력에서 (stnId, areaCode, warnVar)별 최신 유효 이벤트를 계산해 B001_005 상태를
+# 전체 이력에서 (areaCode, warnVar)별 최신 유효 이벤트를 계산해 B001_005 상태를
 # 완전히 재계산한다 (다른 카테고리와 동일하게 매 실행 전체 재계산 — DB와의 diff 불필요)
 ATHENA_QUERIES = {
     "forecast": """
@@ -47,23 +48,24 @@ ATHENA_QUERIES = {
         ) t
         WHERE rn = 1
     """,
-    # 특보: (stnId, areaCode, warnVar) 기준 최신 유효 이벤트 1건 — dt 필터 없이 전체 이력에서 계산.
-    # raw 테이블에는 동일 이벤트(stnId/areaCode/warnVar/tmFc/tmSeq)가 재조회로 여러 번
-    # 적재될 수 있으므로(예: cancel 0→1 정정) fetched_at 기준으로 최신 버전을 먼저 고른 뒤,
-    # 취소(cancel=1)된 버전은 버리고, 남은 버전 중 가장 최근 발표(tmFc/tmSeq)를 채택한다.
+    # 특보: (areaCode, warnVar) 기준 최신 유효 이벤트 1건 — dt 필터 없이 전체 이력에서 계산.
+    # stnId는 지역 구분 없이 항상 고정값("108")으로 내려오므로 그룹핑 키에서 제외하고 areaCode로만
+    # 구분한다(실측 확인, 2026-06-23). raw 테이블에는 동일 이벤트(areaCode/warnVar/tmFc/tmSeq)가
+    # 재조회로 여러 번 적재될 수 있으므로(예: cancel 0→1 정정) fetched_at 기준으로 최신 버전을 먼저
+    # 고른 뒤, 취소(cancel=1)된 버전은 버리고, 남은 버전 중 가장 최근 발표(tmFc/tmSeq)를 채택한다.
     # 전체 이력을 스캔해야 1일 lookback 밖에서 시작된 장기 특보(건조/한파 등)도 놓치지 않는다.
     "special_alert": """
-        SELECT stnId, areaCode, warnVar, command
+        SELECT areaCode, warnVar, command
         FROM (
-            SELECT stnId, areaCode, warnVar, command, tmFc, tmSeq,
+            SELECT areaCode, warnVar, command, tmFc, tmSeq,
                    ROW_NUMBER() OVER (
-                       PARTITION BY stnId, areaCode, warnVar
+                       PARTITION BY areaCode, warnVar
                        ORDER BY tmFc DESC, tmSeq DESC
                    ) AS event_rn
             FROM (
-                SELECT stnId, areaCode, warnVar, command, cancel, tmFc, tmSeq,
+                SELECT areaCode, warnVar, command, cancel, tmFc, tmSeq,
                        ROW_NUMBER() OVER (
-                           PARTITION BY stnId, areaCode, warnVar, tmFc, tmSeq
+                           PARTITION BY areaCode, warnVar, tmFc, tmSeq
                            ORDER BY fetched_at DESC
                        ) AS version_rn
                 FROM weather.special_alert
@@ -73,8 +75,6 @@ ATHENA_QUERIES = {
         WHERE event_rn = 1
     """,
 }
-
-MSCK_TABLES = ["weather.forecast", "weather.uv", "weather.fine_dust", "weather.special_alert"]
 
 RegionCodeResolver = Callable[[int], "str | None"]
 
@@ -124,14 +124,22 @@ def load_regions_csv(s3) -> dict[int, str]:
     content = obj['Body'].read().decode('utf-8-sig')
     return {int(r['id']): r['adm_code'] for r in csv.DictReader(io.StringIO(content))}
 
-def load_stn_to_region_ids(s3) -> dict[str, list[int]]:
-    """stn_id → region_id 목록 (특보는 stnId 단위로 발표되고, 한 관측소에 여러 region이 매핑될 수 있음)"""
-    obj = s3.get_object(Bucket=S3_BUCKET, Key=REGIONS_KEY)
+def load_area_code_to_region_id(s3) -> dict[str, int]:
+    """
+    areaCode(특보구역코드) → region_id.
+    weather.special_alert의 raw stnId는 지역 구분 없이 항상 "108" 고정값으로 내려오므로
+    region 매핑에 쓸 수 없다(실측 확인, 2026-06-23). 실제 지역 구분은 areaCode로만 가능하며,
+    이 매핑은 기상청 "특보구역코드 안내" 엑셀의 REG_UP 계층을 따라 region_id까지 연결해 만든
+    별도 CSV(weather/match_area_codes.py로 생성)를 S3에서 읽어온다. 해상구역(S-) 등 매핑이
+    없는 areaCode는 이 dict에 포함되지 않는다.
+    """
+    obj = s3.get_object(Bucket=S3_BUCKET, Key=AREA_CODE_KEY)
     content = obj['Body'].read().decode('utf-8-sig')
-    mapping: dict[str, list[int]] = {}
-    for r in csv.DictReader(io.StringIO(content)):
-        mapping.setdefault(r['stn_id'], []).append(int(r['id']))
-    return mapping
+    return {
+        r['areaCode']: int(r['region_id'])
+        for r in csv.DictReader(io.StringIO(content))
+        if r['region_id']
+    }
 
 def load_region_code_map(conn) -> dict[str, str]:
     """adm_code → region_code (RDS)"""
@@ -151,23 +159,8 @@ def build_region_code_resolver(s3, conn1) -> RegionCodeResolver:
 
 
 # ---- Athena ------------------------------------------------------------
-
-def run_msck(athena, table: str):
-    resp = athena.start_query_execution(
-        QueryString=f"MSCK REPAIR TABLE {table}",
-        ResultConfiguration={"OutputLocation": ATHENA_OUTPUT},
-    )
-    exec_id = resp["QueryExecutionId"]
-    for _ in range(30):
-        state = athena.get_query_execution(QueryExecutionId=exec_id)["QueryExecution"]["Status"]["State"]
-        if state == "SUCCEEDED":
-            print(f"MSCK {table}: OK")
-            return
-        if state in ("FAILED", "CANCELLED"):
-            print(f"MSCK {table}: {state} (무시하고 계속)")
-            return
-        time.sleep(2)
-    print(f"MSCK {table}: timeout (무시하고 계속)")
+# 파티션은 각 적재 람다(weather_fcst/weather_fine_dust/weather_uv/weather_special_alert)가
+# 적재 시점에 Glue Catalog에 직접 등록하므로 여기서 MSCK REPAIR TABLE을 돌릴 필요가 없다.
 
 def run_athena_query(athena, sql: str) -> list[list[str]]:
     resp = athena.start_query_execution(
@@ -230,30 +223,33 @@ def collect_forecast_codes(athena, region_code: RegionCodeResolver) -> list[Weat
 def collect_special_alert_codes(
     athena,
     region_code: RegionCodeResolver,
-    stn_to_region_ids: dict[str, list[int]],
+    area_code_to_region_id: dict[str, int],
 ) -> list[WeatherCodeRow]:
     """
-    B001_005 특보 — 전체 이력에서 (stnId, areaCode, warnVar)별 최신 유효 상태를 계산해
+    B001_005 특보 — 전체 이력에서 (areaCode, warnVar)별 최신 유효 상태를 계산해
     현재 발효 중인 (region_code, weather_code) 집합을 완전히 새로 만든다.
-    동일 stnId 아래 여러 areaCode가 있으면 하나라도 발표 중이면 활성으로 간주한다
-    (행 처리 순서에 결과가 좌우되지 않도록 active/lifted를 모았다가 한 번에 병합).
+    동일 region 아래 여러 areaCode가 있으면(예: 경기도 산하 시군구 다수) 하나라도 발표 중이면
+    활성으로 간주한다(행 처리 순서에 결과가 좌우되지 않도록 active/lifted를 모았다가 한 번에 병합).
     """
     active: set[WeatherCodeRow] = set()
     lifted: set[WeatherCodeRow] = set()
 
-    for stn_id, _area_code, warn_var, command in run_athena_query(athena, ATHENA_QUERIES["special_alert"]):
+    for area_code, warn_var, command in run_athena_query(athena, ATHENA_QUERIES["special_alert"]):
         label = WARN_VAR_LABELS.get(str(warn_var))
         wcode = WEATHER_CODE_MAP.get(label) if label else None
         if not wcode:
             continue   # 풍랑/폭풍해일/열대야 등 B001_005 코드가 아직 없는 특보종류는 스킵
 
+        region_id = area_code_to_region_id.get(area_code)
+        if region_id is None:
+            continue   # 해상구역 등 region 매핑이 없는 areaCode
+        rc = region_code(region_id)
+        if not rc:
+            continue
+
         is_lifted = str(command) in LIFT_COMMANDS
-        for region_id in stn_to_region_ids.get(stn_id, []):
-            rc = region_code(region_id)
-            if not rc:
-                continue
-            key = (rc, wcode)
-            (lifted if is_lifted else active).add(key)
+        key = (rc, wcode)
+        (lifted if is_lifted else active).add(key)
 
     active -= (lifted - active)
     return list(active)
@@ -279,17 +275,13 @@ def lambda_handler(event, context):
     s3     = boto3.client('s3')
     athena = boto3.client('athena')
 
-    print("Running MSCK REPAIR TABLE...")
-    for table in MSCK_TABLES:
-        run_msck(athena, table)
-
     conn1 = connect_db(db1_secret, 'ptbwa_propfit', cursorclass=pymysql.cursors.DictCursor)
     try:
         region_code = build_region_code_resolver(s3, conn1)
     finally:
         conn1.close()
 
-    stn_to_region_ids = load_stn_to_region_ids(s3)
+    area_code_to_region_id = load_area_code_to_region_id(s3)
 
     conn_addi = connect_db(addi_secret, 'addi')
     try:
@@ -303,7 +295,7 @@ def lambda_handler(event, context):
         weather_data += collect_codes(athena, "uv", region_code)
 
         print("Querying special_alert...")
-        weather_data += collect_special_alert_codes(athena, region_code, stn_to_region_ids)
+        weather_data += collect_special_alert_codes(athena, region_code, area_code_to_region_id)
 
         print(f"Total weather_data rows to insert: {len(weather_data)}")
         save_weather_data(conn_addi, weather_data)
