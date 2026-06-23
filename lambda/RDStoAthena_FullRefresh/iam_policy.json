@@ -18,7 +18,7 @@
       ],
       "Resource": [
         "arn:aws:s3:::ptbwa-da",
-        "arn:aws:s3:::ptbwa-da/prod/addi_conv_info/*"
+        "arn:aws:s3:::ptbwa-da/prod/*"
       ]
     },
     {

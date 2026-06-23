@@ -2,6 +2,8 @@ import boto3
 import json
 import pymysql
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 from datetime import datetime
 from retry import retry
 from botocore.exceptions import ClientError
@@ -10,17 +12,26 @@ from utils.aws import s3, glue
 from utils.logger import logger
 
 
-PANDAS_TO_ATHENA_TYPES = {
-    'int8':            'TINYINT',
-    'int16':           'SMALLINT',
-    'int32':           'INT',
-    'int64':           'BIGINT',
-    'float32':         'FLOAT',
-    'float64':         'DOUBLE',
-    'bool':            'BOOLEAN',
-    'object':          'STRING',
-    'datetime64[ns]':  'TIMESTAMP',
-}
+def _athena_type(arrow_type: pa.DataType) -> str:
+    if pa.types.is_int8(arrow_type):
+        return 'TINYINT'
+    if pa.types.is_int16(arrow_type):
+        return 'SMALLINT'
+    if pa.types.is_int32(arrow_type):
+        return 'INT'
+    if pa.types.is_int64(arrow_type):
+        return 'BIGINT'
+    if pa.types.is_float32(arrow_type):
+        return 'FLOAT'
+    if pa.types.is_floating(arrow_type):
+        return 'DOUBLE'
+    if pa.types.is_boolean(arrow_type):
+        return 'BOOLEAN'
+    if pa.types.is_date(arrow_type):
+        return 'DATE'
+    if pa.types.is_timestamp(arrow_type):
+        return 'TIMESTAMP'
+    return 'STRING'
 
 class FullRefreshManager:
     def __init__(self, secret_name: str, db_name: str):
@@ -40,15 +51,16 @@ class FullRefreshManager:
 
         df = pd.read_sql(f"SELECT * FROM {self.db_name}.{table_name}", self.conn)
         logger.info(f"{len(df)}건 조회 완료")
+        table = pa.Table.from_pandas(df, preserve_index=False)
 
-        self._ensure_glue_table(df, glue_db, glue_table, s3_bucket, s3_prefix)
+        self._ensure_glue_table(table, glue_db, glue_table, s3_bucket, s3_prefix)
         self._clear_s3_prefix(s3_bucket, s3_prefix)
 
         ts = datetime.utcnow().strftime('%Y%m%d%H%M%S')
         s3_key = f"{s3_prefix}/{ts}.parquet"
         local_path = f"/tmp/{self.db_name}_{table_name}_{ts}.parquet"
 
-        df.to_parquet(local_path, index=False, engine='pyarrow')
+        pq.write_table(table, local_path)
         s3.upload_file(local_path, s3_bucket, s3_key)
         logger.info(f"S3 업로드 완료: s3://{s3_bucket}/{s3_key}")
 
@@ -75,24 +87,24 @@ class FullRefreshManager:
 
     # ── Glue ─────────────────────────────────────────────────────────────────
 
-    def _ensure_glue_table(self, df: pd.DataFrame, glue_db: str, glue_table: str, s3_bucket: str, s3_prefix: str):
+    def _ensure_glue_table(self, table: pa.Table, glue_db: str, glue_table: str, s3_bucket: str, s3_prefix: str):
         try:
             glue.get_table(DatabaseName=glue_db, Name=glue_table)
             logger.info(f"Glue 테이블 확인: {glue_db}.{glue_table}")
         except ClientError as e:
             if e.response['Error']['Code'] == 'EntityNotFoundException':
                 logger.info(f"Glue 테이블 없음 → 자동 생성: {glue_db}.{glue_table}")
-                self._create_glue_table(df, glue_db, glue_table, s3_bucket, s3_prefix)
+                self._create_glue_table(table, glue_db, glue_table, s3_bucket, s3_prefix)
             else:
                 raise
 
-    def _create_glue_table(self, df: pd.DataFrame, glue_db: str, glue_table: str, s3_bucket: str, s3_prefix: str):
+    def _create_glue_table(self, table: pa.Table, glue_db: str, glue_table: str, s3_bucket: str, s3_prefix: str):
         columns = [
             {
-                'Name': col,
-                'Type': PANDAS_TO_ATHENA_TYPES.get(str(dtype), 'STRING'),
+                'Name': field.name,
+                'Type': _athena_type(field.type),
             }
-            for col, dtype in df.dtypes.items()
+            for field in table.schema
         ]
 
         glue.create_table(
