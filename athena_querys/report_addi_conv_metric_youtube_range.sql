@@ -4,6 +4,13 @@ WITH info AS (
         cmp_no,
         cmp_you_no
     FROM "prod_addi_conv"."addi_conv_info"
+
+    UNION
+
+    SELECT DISTINCT
+        campaign_no AS cmp_no,
+        campaign_id AS cmp_you_no
+    FROM "prod_addi_conv"."addi_conv_cmp_list_youtube"
 ),
 aggregated AS (
     SELECT
