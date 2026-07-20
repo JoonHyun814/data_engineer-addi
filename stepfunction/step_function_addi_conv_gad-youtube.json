@@ -119,6 +119,27 @@
                   }
                 },
                 {
+                  "Comment": "raw_conv_web_v2",
+                  "StartAt": "RunInsertRawConvWeb_v2",
+                  "States": {
+                    "RunInsertRawConvWeb_v2": {
+                      "Type": "Task",
+                      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+                      "Parameters": {
+                        "JobName": "prod_addi_conv_insert_Athena",
+                        "Arguments": {
+                          "--s3_query_path": "s3://ptbwa-da/prod/prod_addi_conv/query/raw_conv_web_v2.sql",
+                          "--athena_table": "raw_conv_web_v2",
+                          "--start_date.$": "$.start_date",
+                          "--end_date.$": "$.end_date"
+                        }
+                      },
+                      "ResultPath": null,
+                      "End": true
+                    }
+                  }
+                },
+                {
                   "Comment": "raw_conv_web_imp",
                   "StartAt": "RunInsertRawConvWebImp",
                   "States": {
