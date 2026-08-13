@@ -18,7 +18,9 @@
       ],
       "Resource": [
         "arn:aws:s3:::ptbwa-da",
-        "arn:aws:s3:::ptbwa-da/prod/*"
+        "arn:aws:s3:::ptbwa-da/prod/*",
+        "arn:aws:s3:::ptbwa-dw",
+        "arn:aws:s3:::ptbwa-dw/prod/*"
       ]
     },
     {
