@@ -116,6 +116,15 @@ def run_athena_query(query, description):
         logger.error(f"[FAIL] {description} 실패: {e}")
         raise e
 
+# 6-1. COUNT(*) 실행 + 결과값 파싱
+# INSERT 쿼리는 SUCCEEDED여도 0건일 수 있어(예: 조인 대상 테이블이 비어있는 경우)
+# 별도로 실제 적재 건수를 세어 로그에 남긴다.
+def run_athena_count_query(query, description):
+    execution_id = run_athena_query(query, description)
+    result = athena_client.get_query_results(QueryExecutionId=execution_id)
+    rows = result['ResultSet']['Rows']
+    return int(rows[1]['Data'][0]['VarCharValue'])
+
 # 7. 날짜별 루프
 for current_date in date_list:
     logger.info(f"===== 처리 중: {current_date} =====")
@@ -159,6 +168,22 @@ for current_date in date_list:
 
     # INSERT 실행
     run_athena_query(sql, f"INSERT ({athena_db}.{athena_table} / {current_date})")
+
+    # 적재 건수 확인
+    # SELECT는 DDL(ALTER TABLE 등)과 달리 Presto 파서를 타서 백틱이 아닌 큰따옴표로 식별자를 감싸야 한다.
+    # 이 카운트 체크 자체가 실패해도 INSERT는 이미 끝난 상태이므로, job을 죽이지 않고 로그만 남긴다.
+    try:
+        count_sql = (
+            f'SELECT COUNT(*) AS cnt FROM "{athena_db}"."{athena_table}" '
+            f"WHERE year='{year}' AND month='{month}' AND day='{day}'"
+        )
+        row_count = run_athena_count_query(count_sql, f"COUNT ({athena_db}.{athena_table} / {current_date})")
+        if row_count == 0:
+            logger.warning(f"[ROW_COUNT] {athena_db}.{athena_table} / {current_date}: 0건 적재됨 (INSERT는 SUCCEEDED)")
+        else:
+            logger.info(f"[ROW_COUNT] {athena_db}.{athena_table} / {current_date}: {row_count}건 적재")
+    except Exception as e:
+        logger.error(f"[ROW_COUNT] 건수 확인 실패 ({athena_db}.{athena_table} / {current_date}): {e}")
 
 logger.info(f"[DONE] 전체 완료: {athena_db}.{athena_table} / {start_date} ~ {end_date}")
 job.commit()
