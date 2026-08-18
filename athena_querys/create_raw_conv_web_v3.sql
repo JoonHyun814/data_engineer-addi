@@ -36,7 +36,9 @@ mall AS (
             WHEN g.ev = 'click'      THEN COALESCE(NULLIF(TRIM(CAST(g.click AS VARCHAR)), ''), g.ev)
             ELSE g.ev
         END AS ev,
-        g.scroll,
+        -- 테이블 scroll 컬럼은 bigint(v2 기준)로 고정되어 있으나 gtm_logs_hourly.scroll은
+        -- varchar이므로 명시 캐스팅 필요. 공백/비숫자 값은 TRY_CAST로 NULL 처리
+        TRY_CAST(NULLIF(TRIM(CAST(g.scroll AS VARCHAR)), '') AS BIGINT) AS scroll,
         g.click,
         g.conv_type,
         g.conv_value,
