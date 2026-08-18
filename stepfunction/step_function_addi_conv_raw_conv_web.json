@@ -1,0 +1,82 @@
+{
+  "Comment": "Addi Conv GAD YouTube: RDS to Athena Full Refresh 후 raw_conv_web_home 적재 (날짜는 실행 시점의 KST 오늘 날짜)",
+  "StartAt": "GetTodayKST",
+  "States": {
+    "GetTodayKST": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "DateUtil",
+        "Payload": {
+          "date_diff": 0
+        }
+      },
+      "ResultSelector": {
+        "start_date.$": "$.Payload.start_date",
+        "end_date.$": "$.Payload.end_date"
+      },
+      "ResultPath": "$",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "JobFailed"
+        }
+      ],
+      "Next": "RunRDStoAthenaFullRefresh"
+    },
+    "RunRDStoAthenaFullRefresh": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:ap-northeast-2:170217667865:function:RDStoAthena_FullRefresh",
+      "Parameters": {
+        "secret_name": "database_addi",
+        "db_name": "addi",
+        "table_name": "addi_conv_info",
+        "glue_db": "prod_addi_conv",
+        "glue_table": "addi_conv_info",
+        "s3_bucket": "ptbwa-da",
+        "s3_prefix": "prod/addi_conv_info"
+      },
+      "ResultPath": null,
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "JobFailed"
+        }
+      ],
+      "Next": "RunInsertRawConvWebHome"
+    },
+    "RunInsertRawConvWebHome": {
+      "Comment": "raw_conv_web_home",
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "prod_addi_conv_insert_Athena",
+        "Arguments": {
+          "--s3_query_path": "s3://ptbwa-da/prod/prod_addi_conv/query/raw_conv_web_home.sql",
+          "--athena_table": "raw_conv_web_home",
+          "--start_date.$": "$.start_date",
+          "--end_date.$": "$.end_date"
+        }
+      },
+      "ResultPath": null,
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "JobFailed"
+        }
+      ],
+      "End": true
+    },
+    "JobFailed": {
+      "Type": "Fail",
+      "Error": "StepFailed",
+      "Cause": "GetTodayKST, RDStoAthena_FullRefresh, Glue Job 중 하나가 실패했습니다. CloudWatch Logs를 확인하세요."
+    }
+  }
+}
