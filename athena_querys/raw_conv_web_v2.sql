@@ -31,7 +31,7 @@ mall AS (
         g.pid,
         g.ip,
         i.cmp_no
-    FROM "prod-ptbwa-dw"."gtm_logs" g
+    FROM "prod-ptbwa-dw"."gtm_logs_hourly" g
     INNER JOIN info i
         ON g.pid = i.pixel_id_web
     CROSS JOIN base_date b

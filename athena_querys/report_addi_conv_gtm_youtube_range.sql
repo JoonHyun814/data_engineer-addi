@@ -19,7 +19,7 @@ WITH gtm AS (
             ELSE ev
         END AS ev,
         ip
-    FROM "prod-ptbwa-dw"."gtm_logs"
+    FROM "prod-ptbwa-dw"."gtm_logs_hourly"
     WHERE SUBSTR(log_time, 1, 10) BETWEEN '2026/05/01' AND '2026/05/10'
 ),
 gclid_list AS (

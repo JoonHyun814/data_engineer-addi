@@ -17,7 +17,7 @@ WITH gtm AS (
         gclid,
         ev,
         ip
-    FROM "prod-ptbwa-dw"."gtm_logs"
+    FROM "prod-ptbwa-dw"."gtm_logs_hourly"
     WHERE SUBSTR(log_time, 1, 10) BETWEEN '2026/01/01' AND '2026/05/09'
 ),
 gclid_list AS (
