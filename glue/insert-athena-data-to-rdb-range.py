@@ -268,7 +268,11 @@ for date in date_list:
             vals = list()
             for col in df.columns:
                 val = eval(f"row.{col}")
-                vals.append("NULL" if val is None else f"'{val}'")
+                # Athena에서 NULL로 채운 값이 df.collect() 시 Python None이 아니라
+                # 문자열 'None'으로 넘어오는 경우가 있어 (예: revenue 전체가 NULL인 파티션),
+                # 'None'인 str.을 그냥 f-string 처리하면 MySQL에 문자열 'None'이 그대로 들어가
+                # DataError(Incorrect double value)가 난다. 명시적으로 같이 걸러준다.
+                vals.append("NULL" if val is None or val == 'None' else f"'{val}'")
             insert_query = f"INSERT INTO {rdb_db}.{rdb_table}({','.join(df.columns)}) VALUES ({','.join(vals)})"
             cur.execute(insert_query)
         conn.commit()
