@@ -46,6 +46,21 @@
         "ec2:DeleteNetworkInterface"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "CloudWatchLogsGroup",
+      "Effect": "Allow",
+      "Action": "logs:CreateLogGroup",
+      "Resource": "arn:aws:logs:ap-northeast-2:170217667865:*"
+    },
+    {
+      "Sid": "CloudWatchLogsStream",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "arn:aws:logs:ap-northeast-2:170217667865:log-group:/aws/lambda/RDStoAthena_FullRefresh:*"
     }
   ]
 }
