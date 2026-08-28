@@ -2,3 +2,9 @@
 .env
 __pycache__
 datas
+
+# 로컬 백필/추출용 1회성 데이터 (datas/ 밖에 만들어진 것들)
+/home_sing_v2.csv
+/delete_target.csv
+/scripts/singular_daily_report_result.csv
+/scripts/singular_daily_report_result_named.csv
