@@ -129,12 +129,12 @@ WITH media as (
         month,
         day
 )
-select 
+select
     *
-from 
+from
     abi_report
 union all
-select 
+select
     *
-from 
+from
     apm_report

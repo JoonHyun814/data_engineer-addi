@@ -1,0 +1,14 @@
+{
+  "source": ["aws.s3"],
+  "detail-type": ["Object Created"],
+  "detail": {
+    "bucket": {
+      "name": ["propfit-bid-logs"]
+    },
+    "object": {
+      "key": [{
+        "prefix": "nhn/propfit_log/nhn_bid_log/"
+      }]
+    }
+  }
+}

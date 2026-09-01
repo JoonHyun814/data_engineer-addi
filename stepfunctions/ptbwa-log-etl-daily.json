@@ -46,6 +46,23 @@
               }
             }
           }
+        },
+        {
+          "StartAt": "NHN Postback",
+          "States": {
+            "NHN Postback": {
+              "Type": "Task",
+              "Arguments": {
+                "Bucket": "propfit-bid-logs",
+                "Prefix": "{% $join(['nhn/propfit_log/nhn_postback_log/year=',$split($split($Date, ' ', 1)[0], '-')[0],'/month=', $split($split($Date, ' ', 1)[0], '-')[1],'/day=',$split($split($Date, ' ', 1)[0], '-')[2]]) %}"
+              },
+              "Resource": "arn:aws:states:::aws-sdk:s3:listObjectsV2",
+              "End": true,
+              "Output": {
+                "NhnS3Logs": "{% $states.result %}"
+              }
+            }
+          }
         }
       ]
     },
@@ -54,7 +71,7 @@
       "Choices": [
         {
           "Next": "Cralwer Last Run Status",
-          "Condition": "{% $states.input.AbiS3Logs.KeyCount>0 or $states.input.ApmS3Logs.KeyCount>0 %}"
+          "Condition": "{% $states.input.AbiS3Logs.KeyCount>0 or $states.input.ApmS3Logs.KeyCount>0 or $states.input.NhnS3Logs.KeyCount>0 %}"
         }
       ],
       "Default": "Run Crawler Pass"

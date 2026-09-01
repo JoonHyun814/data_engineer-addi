@@ -1,0 +1,72 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "S3ListPostbackLogs",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::propfit-bid-logs"
+      ]
+    },
+    {
+      "Sid": "ElbDescribeTargetHealth",
+      "Effect": "Allow",
+      "Action": [
+        "elasticloadbalancing:DescribeTargetHealth"
+      ],
+      "Resource": [
+        "arn:aws:elasticloadbalancing:ap-northeast-2:170217667865:targetgroup/propfit-authorizedbuyers/4f28ac788885b72b",
+        "arn:aws:elasticloadbalancing:ap-northeast-2:170217667865:targetgroup/propfit-01-tg/43298b14ec795cbd",
+        "arn:aws:elasticloadbalancing:ap-northeast-2:170217667865:targetgroup/propfit-v2-bidder-tg/94e0ce7a9295c11d"
+      ]
+    },
+    {
+      "Sid": "GlueWorkflowControl",
+      "Effect": "Allow",
+      "Action": [
+        "glue:GetWorkflow",
+        "glue:StartWorkflowRun",
+        "glue:GetWorkflowRun"
+      ],
+      "Resource": [
+        "arn:aws:glue:ap-northeast-2:170217667865:workflow/ptbwa-postback-hourly"
+      ]
+    },
+    {
+      "Sid": "StepFunctionsStartLogAgg",
+      "Effect": "Allow",
+      "Action": [
+        "states:StartExecution"
+      ],
+      "Resource": [
+        "arn:aws:states:ap-northeast-2:170217667865:stateMachine:ptbwa-log-agg"
+      ]
+    },
+    {
+      "Sid": "StepFunctionsSyncLogAggExecution",
+      "Effect": "Allow",
+      "Action": [
+        "states:DescribeExecution",
+        "states:StopExecution"
+      ],
+      "Resource": [
+        "arn:aws:states:ap-northeast-2:170217667865:execution:ptbwa-log-agg:*"
+      ]
+    },
+    {
+      "Sid": "StepFunctionsSyncEventBridgeManagedRule",
+      "Effect": "Allow",
+      "Action": [
+        "events:PutTargets",
+        "events:PutRule",
+        "events:DescribeRule"
+      ],
+      "Resource": [
+        "arn:aws:events:ap-northeast-2:170217667865:rule/StepFunctionsGetEventForStepFunctionsExecutionRule"
+      ]
+    }
+  ]
+}
