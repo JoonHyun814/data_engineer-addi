@@ -1,0 +1,144 @@
+{
+  "Comment": "A description of my state machine",
+  "StartAt": "Create Query",
+  "States": {
+    "Create Query": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Output": {
+        "Query": "{% $states.result.Payload.generated_sql_query %}"
+      },
+      "Arguments": {
+        "FunctionName": "arn:aws:lambda:ap-northeast-2:170217667865:function:CreateAthenaQuery:prod",
+        "Payload": {
+          "date": "{% $states.input.date %}",
+          "dirs": "{% $states.input.query_dirs %}",
+          "query_type": "{% $states.input.query_type %}"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Next": "Run Query",
+      "Assign": {
+        "Date": "{% $states.input.date %}",
+        "MatchCondition": "{% $states.input.match_condition %}",
+        "ErrorMessage": "{% $states.input.error_message %}"
+      }
+    },
+    "Run Query": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::athena:startQueryExecution",
+      "Arguments": {
+        "QueryString": "{% $states.input.Query %}",
+        "WorkGroup": "primary",
+        "ResultConfiguration": {
+          "OutputLocation": "s3://ptbwa-athena/query/output/"
+        }
+      },
+      "Next": "Run Query Status",
+      "Assign": {
+        "QueryExecutionId": "{% $states.result.QueryExecutionId %}"
+      }
+    },
+    "Run Query Status": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::athena:getQueryExecution",
+      "Arguments": {
+        "QueryExecutionId": "{% $QueryExecutionId %}"
+      },
+      "Next": "Run Query Status Choice",
+      "Output": {
+        "QueryExecutionStatus": "{% $states.result.QueryExecution.Status.State %}"
+      }
+    },
+    "Run Query Status Choice": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Next": "Run Query Status Wait",
+          "Condition": "{% $states.input.QueryExecutionStatus = 'QUEUED' or $states.input.QueryExecutionStatus = 'RUNNING' %}"
+        },
+        {
+          "Next": "Query Result",
+          "Condition": "{% $states.input.QueryExecutionStatus = 'SUCCEEDED'%}"
+        }
+      ],
+      "Default": "Query Fail"
+    },
+    "Query Result": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::athena:getQueryResults",
+      "Arguments": {
+        "QueryExecutionId": "{% $QueryExecutionId %}"
+      },
+      "Next": "Data Match",
+      "Output": {
+        "RowCount": "{% $number($states.result.ResultSet.Rows[1].Data[0].VarCharValue) %}"
+      }
+    },
+    "Run Query Status Wait": {
+      "Type": "Wait",
+      "Seconds": 10,
+      "Next": "Run Query Status"
+    },
+    "Query Fail": {
+      "Type": "Fail"
+    },
+    "Data Match": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Next": "Match",
+          "Condition": "{% $states.input.RowCount=$MatchCondition %}"
+        }
+      ],
+      "Default": "Not Match Alert"
+    },
+    "Not Match Alert": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Output": "{% $states.result.Payload %}",
+      "Arguments": {
+        "FunctionName": "arn:aws:lambda:ap-northeast-2:170217667865:function:DataConsistencyAlert:prod",
+        "Payload": {
+          "message": "{% $ErrorMessage %}",
+          "date": "{% $Date %}"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Next": "Not Match"
+    },
+    "Not Match": {
+      "Type": "Fail"
+    },
+    "Match": {
+      "Type": "Succeed"
+    }
+  },
+  "QueryLanguage": "JSONata"
+}
