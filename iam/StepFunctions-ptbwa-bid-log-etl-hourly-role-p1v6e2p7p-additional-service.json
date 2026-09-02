@@ -31,7 +31,8 @@
             ],
             "Resource": [
                 "arn:aws:glue:ap-northeast-2:170217667865:workflow/ptbwa-abi-bid-hourly",
-                "arn:aws:glue:ap-northeast-2:170217667865:workflow/ptbwa-apm-bid-hourly"
+                "arn:aws:glue:ap-northeast-2:170217667865:workflow/ptbwa-apm-bid-hourly",
+                "arn:aws:glue:ap-northeast-2:170217667865:workflow/ptbwa-nhn-bid"
             ]
         }
     ]
