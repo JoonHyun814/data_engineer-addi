@@ -5,9 +5,12 @@ INSERT INTO "prod_addi_conv"."raw_conv_web_home"
 
 WITH base_date AS (
     -- {date} 플레이스홀더: Glue 잡에서 처리 날짜로 치환됨 (YYYY-MM-DD)
+    -- start_yyyymmdd: addi 매칭용 postback 조회 하한 (target_dt 기준 6개월 전).
+    -- post_base는 campaign_start의 MIN(post_datetime) 계산에 쓰이므로 여기서는 하한을 걸지 않음.
     SELECT
         DATE '{date}' AS target_dt,
-        CAST(date_format(DATE '{date}', '%Y%m%d') AS INTEGER) AS target_yyyymmdd
+        CAST(date_format(DATE '{date}', '%Y%m%d') AS INTEGER) AS target_yyyymmdd,
+        CAST(date_format(date_add('month', -6, DATE '{date}'), '%Y%m%d') AS INTEGER) AS start_yyyymmdd
 ),
 
 info AS (
@@ -70,7 +73,7 @@ addi_mapping AS (
         AND CAST(
             CONCAT(post.year, LPAD(post.month, 2, '0'), LPAD(post.day, 2, '0'))
             AS INTEGER
-        ) <= b.target_yyyymmdd
+        ) BETWEEN b.start_yyyymmdd AND b.target_yyyymmdd
         AND NULLIF(TRIM(post.request_ip), '') IS NOT NULL
 ),
 
