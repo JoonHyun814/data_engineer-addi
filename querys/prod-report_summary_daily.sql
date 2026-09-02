@@ -202,7 +202,6 @@ with abi_price as (
         year,
         month,
         day
-)
 ), nhn_price as (
     select
         req_id,
