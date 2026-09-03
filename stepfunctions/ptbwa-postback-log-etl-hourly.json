@@ -202,7 +202,7 @@
               "Type": "Choice",
               "Choices": [
                 {
-                  "Condition": "{% ($states.input.S3KeyCount>0) and ($states.input.S3KeyCount) < (3 * $count($states.input.TargetHelthyId)) %}",
+                  "Condition": "{% ($states.input.S3KeyCount>0) and ($count($states.input.S3Logs.Contents[$contains(Key, '_w0.log.gz')])) < ($count($states.input.TargetHelthyId)) %}",
                   "Next": "NHN Log Missing Alert",
                   "Output": {
                     "S3Logs": "{% $states.input.S3Logs %}",
