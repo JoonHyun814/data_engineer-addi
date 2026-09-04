@@ -1,7 +1,32 @@
 {
-  "Comment": "Addi Conv GAD YouTube: RDS to Athena Full Refresh 후 raw_conv_web_home 적재 (날짜는 실행 시점의 KST 오늘 날짜)",
-  "StartAt": "GetTodayKST",
+  "Comment": "Addi Conv GAD YouTube: RDS to Athena Full Refresh 후 raw_conv_web_home 적재 (기본: 실행 시점의 KST 오늘 날짜 / 입력에 date가 있으면 해당 날짜로, start_date+end_date가 있으면 그 범위로 하루씩 적재)",
+  "StartAt": "CheckDateInput",
   "States": {
+    "CheckDateInput": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.start_date",
+          "IsPresent": true,
+          "Next": "BuildDateList"
+        },
+        {
+          "Variable": "$.date",
+          "IsPresent": true,
+          "Next": "SetSingleDate"
+        }
+      ],
+      "Default": "GetTodayKST"
+    },
+    "SetSingleDate": {
+      "Comment": "테스트/백필용: 실행 입력의 date 하나로 override",
+      "Type": "Pass",
+      "Parameters": {
+        "start_date.$": "$.date",
+        "end_date.$": "$.date"
+      },
+      "Next": "BuildDateList"
+    },
     "GetTodayKST": {
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
@@ -24,6 +49,17 @@
           "Next": "JobFailed"
         }
       ],
+      "Next": "BuildDateList"
+    },
+    "BuildDateList": {
+      "Comment": "start_date~end_date 사이 모든 날짜를 date_list 배열로 생성. 단일 날짜인 경우도 원소 1개짜리 배열로 통일해서 아래 Map에서 동일하게 처리한다.",
+      "Type": "Pass",
+      "QueryLanguage": "JSONata",
+      "Output": {
+        "start_date": "{% $states.input.start_date %}",
+        "end_date": "{% $states.input.end_date %}",
+        "date_list": "{% ( $sd := $toMillis($states.input.start_date & 'T00:00:00Z'); $ed := $toMillis($states.input.end_date & 'T00:00:00Z'); $days := ($ed - $sd) / 86400000; [0..$days].($fromMillis($sd + $ * 86400000, '[Y0001]-[M01]-[D01]')) ) %}"
+      },
       "Next": "RunRDStoAthenaFullRefresh"
     },
     "RunRDStoAthenaFullRefresh": {
@@ -50,16 +86,34 @@
       "Next": "RunInsertRawConvWebHome"
     },
     "RunInsertRawConvWebHome": {
-      "Comment": "raw_conv_web_home",
-      "Type": "Task",
-      "Resource": "arn:aws:states:::glue:startJobRun.sync",
-      "Parameters": {
-        "JobName": "prod_addi_conv_insert_Athena",
-        "Arguments": {
-          "--s3_query_path": "s3://ptbwa-da/prod/prod_addi_conv/query/raw_conv_web_home.sql",
-          "--athena_table": "raw_conv_web_home",
-          "--start_date.$": "$.start_date",
-          "--end_date.$": "$.end_date"
+      "Comment": "raw_conv_web_home: date_list의 날짜별로 하루씩 순차 적재",
+      "Type": "Map",
+      "ItemsPath": "$.date_list",
+      "MaxConcurrency": 1,
+      "ItemSelector": {
+        "date.$": "$$.Map.Item.Value"
+      },
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "INLINE"
+        },
+        "StartAt": "RunInsertRawConvWebHomePerDate",
+        "States": {
+          "RunInsertRawConvWebHomePerDate": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::states:startExecution.sync:2",
+            "Parameters": {
+              "StateMachineArn": "arn:aws:states:ap-northeast-2:170217667865:stateMachine:athena-insert-data:prod",
+              "Input": {
+                "date.$": "$.date",
+                "bucket": "ptbwa-da",
+                "athena_dirs": "prod/prod_addi_conv/raw_conv_web_home",
+                "query_dirs": "ptbwa",
+                "query_type": "prod-addi_conv_raw_conv_web_home"
+              }
+            },
+            "End": true
+          }
         }
       },
       "ResultPath": null,
