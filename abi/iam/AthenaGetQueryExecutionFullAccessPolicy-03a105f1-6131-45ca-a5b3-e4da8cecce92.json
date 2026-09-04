@@ -1,0 +1,14 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "athena:getQueryExecution"
+            ],
+            "Resource": [
+                "arn:aws:athena:ap-northeast-2:170217667865:workgroup/*"
+            ]
+        }
+    ]
+}

@@ -1,0 +1,552 @@
+{
+  "Comment": "A description of my state machine",
+  "StartAt": "Wait Until Created All Logs",
+  "States": {
+    "Wait Until Created All Logs": {
+      "Type": "Wait",
+      "Seconds": 120,
+      "Next": "Parallel",
+      "Assign": {
+        "Date": "{% $states.input.date %}"
+      }
+    },
+    "Parallel": {
+      "Type": "Parallel",
+      "Branches": [
+        {
+          "StartAt": "Abi Bid",
+          "States": {
+            "Abi Bid": {
+              "Type": "Task",
+              "Arguments": {
+                "Bucket": "propfit-bid-logs",
+                "Prefix": "{% $join(['ab/propfit_log/ab_bid_log/year=',$split($split($Date, ' ', 1)[0], '-')[0],'/month=', $split($split($Date, ' ', 1)[0], '-')[1],'/day=',$split($split($Date, ' ', 1)[0], '-')[2],'/hour=',$split($split($Date, ' ', 2)[1], ':')[0]]) %}"
+              },
+              "Resource": "arn:aws:states:::aws-sdk:s3:listObjectsV2",
+              "Next": "Abi ELB",
+              "Output": {
+                "S3Logs": "{% $states.result %}"
+              }
+            },
+            "Abi ELB": {
+              "Type": "Task",
+              "Arguments": {
+                "TargetGroupArn": "arn:aws:elasticloadbalancing:ap-northeast-2:170217667865:targetgroup/propfit-authorizedbuyers/4f28ac788885b72b"
+              },
+              "Resource": "arn:aws:states:::aws-sdk:elasticloadbalancingv2:describeTargetHealth",
+              "Next": "Compare Num of Abi Bid Log and Num of ELB Instance",
+              "Output": {
+                "S3Logs": "{% $states.input.S3Logs %}",
+                "ElbTargetHealthDescriptions": "{% $states.result %}",
+                "S3KeyCount": "{% $states.input.S3Logs.KeyCount %}",
+                "TargetHelthyId": "{% $states.result.TargetHealthDescriptions[TargetHealth.State='healthy'].Target.Id %}"
+              }
+            },
+            "Compare Num of Abi Bid Log and Num of ELB Instance": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Next": "Abi Log Missing Alert",
+                  "Condition": "{% ($states.input.S3KeyCount>0) and ($states.input.S3KeyCount) < ($count($states.input.TargetHelthyId)) %}",
+                  "Output": {
+                    "S3Logs": "{% $states.input.S3Logs %}",
+                    "ElbTargetHealthDescriptions": "{% $states.input.ElbTargetHealthDescriptions %}"
+                  }
+                },
+                {
+                  "Next": "Abi Bid Crawler End",
+                  "Condition": "{% $states.input.S3Logs.KeyCount=0 %}"
+                }
+              ],
+              "Default": "Abi Bid Crawler Last Status"
+            },
+            "Abi Bid Crawler Last Status": {
+              "Type": "Task",
+              "Arguments": {
+                "Name": "ptbwa-abi-bid-hourly"
+              },
+              "Resource": "arn:aws:states:::aws-sdk:glue:getWorkflow",
+              "Next": "Abi Bid Crawler Last Status Choice",
+              "Output": {
+                "LastRunStatus": "{% $states.result.Workflow.LastRun.Status %}"
+              }
+            },
+            "Abi Bid Crawler Last Status Choice": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Next": "Run Abi Bid Crawler",
+                  "Condition": "{% $states.input.LastRunStatus='COMPLETED' or $states.input.LastRunStatus='STOPPED' or $states.input.LastRunStatus='ERROR' %}"
+                }
+              ],
+              "Default": "Abi Bid Crawler End"
+            },
+            "Run Abi Bid Crawler": {
+              "Type": "Task",
+              "Arguments": {
+                "Name": "ptbwa-abi-bid-hourly"
+              },
+              "Resource": "arn:aws:states:::aws-sdk:glue:startWorkflowRun",
+              "Next": "Abi Bid Crawler Status",
+              "Assign": {
+                "AbiBidCrawlerRunId": "{% $states.result.RunId %}"
+              },
+              "Catch": [
+                {
+                  "ErrorEquals": [
+                    "States.TaskFailed"
+                  ],
+                  "Next": "Abi Bid Crawler End"
+                }
+              ]
+            },
+            "Abi Bid Crawler End": {
+              "Type": "Pass",
+              "End": true
+            },
+            "Abi Bid Crawler Status": {
+              "Type": "Task",
+              "Arguments": {
+                "Name": "ptbwa-abi-bid-hourly",
+                "RunId": "{% $AbiBidCrawlerRunId %}"
+              },
+              "Resource": "arn:aws:states:::aws-sdk:glue:getWorkflowRun",
+              "Next": "Abi Bid Crawler Status Choice"
+            },
+            "Abi Bid Crawler Status Choice": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Next": "Abi Bid Crawler Wait",
+                  "Condition": "{% $states.input.Run.Status=\"RUNNING\" or $states.input.Run.Status=\"STOPPING\" %}"
+                },
+                {
+                  "Next": "Abi Flatten",
+                  "Condition": "{% $states.input.Run.Status=\"COMPLETED\" %}"
+                },
+                {
+                  "Next": "Abi Bid Crawler End",
+                  "Condition": "{% $states.input.Run.Status=\"STOPPED\" %}"
+                }
+              ],
+              "Default": "Abi Bid Crawler End"
+            },
+            "Abi Bid Crawler Wait": {
+              "Type": "Wait",
+              "Seconds": 30,
+              "Next": "Abi Bid Crawler Status"
+            },
+            "Abi Flatten": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::states:startExecution.sync:2",
+              "Arguments": {
+                "StateMachineArn": "arn:aws:states:ap-northeast-2:170217667865:stateMachine:athena-insert-data:prod",
+                "Input": {
+                  "date": "{% $Date %}",
+                  "bucket": "ptbwa-dw",
+                  "athena_dirs": "prod/abi_bid_log_flatten",
+                  "query_dirs": "ptbwa",
+                  "query_type": "prod-abi_bid_log_flatten"
+                }
+              },
+              "End": true,
+              "Catch": [
+                {
+                  "ErrorEquals": [
+                    "States.TaskFailed"
+                  ],
+                  "Next": "Abi Bid Crawler End"
+                }
+              ]
+            },
+            "Abi Log Missing Alert": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Output": "{% $states.result.Payload %}",
+              "Arguments": {
+                "FunctionName": "arn:aws:lambda:ap-northeast-2:170217667865:function:PtbwaLogMissingAlert:prod",
+                "Payload": {
+                  "S3Logs": "{% $states.input.S3Logs %}",
+                  "ElbTargetHealthDescriptions": "{% $states.input.ElbTargetHealthDescriptions %}",
+                  "Bucket": "propfit-bid-logs",
+                  "Prefix": "{% $join(['ab/propfit_log/ab_bid_log/year=',$split($split($Date, ' ', 1)[0], '-')[0],'/month=', $split($split($Date, ' ', 1)[0], '-')[1],'/day=',$split($split($Date, ' ', 1)[0], '-')[2],'/hour=',$split($split($Date, ' ', 2)[1], ':')[0]]) %}"
+                }
+              },
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException",
+                    "Lambda.SdkClientException",
+                    "Lambda.TooManyRequestsException"
+                  ],
+                  "IntervalSeconds": 1,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2,
+                  "JitterStrategy": "FULL"
+                }
+              ],
+              "Next": "Abi Bid Crawler Last Status"
+            }
+          }
+        },
+        {
+          "StartAt": "APM Bid",
+          "States": {
+            "APM Bid": {
+              "Type": "Task",
+              "Arguments": {
+                "Bucket": "propfit-bid-logs",
+                "Prefix": "{% $join(['bid_log/year=',$split($split($Date, ' ', 1)[0], '-')[0],'/month=', $split($split($Date, ' ', 1)[0], '-')[1],'/day=',$split($split($Date, ' ', 1)[0], '-')[2],'/hour=',$split($split($Date, ' ', 2)[1], ':')[0]]) %}"
+              },
+              "Resource": "arn:aws:states:::aws-sdk:s3:listObjectsV2",
+              "Next": "APM ELB",
+              "Output": {
+                "S3Logs": "{% $states.result %}"
+              }
+            },
+            "APM ELB": {
+              "Type": "Task",
+              "Arguments": {
+                "TargetGroupArn": "arn:aws:elasticloadbalancing:ap-northeast-2:170217667865:targetgroup/propfit-01-tg/43298b14ec795cbd"
+              },
+              "Resource": "arn:aws:states:::aws-sdk:elasticloadbalancingv2:describeTargetHealth",
+              "Next": "Compare Num of APM Bid Log and Num of ELB Instance",
+              "Output": {
+                "S3Logs": "{% $states.input.S3Logs %}",
+                "ElbTargetHealthDescriptions": "{% $states.result %}",
+                "S3KeyCount": "{% $states.input.S3Logs.KeyCount %}",
+                "TargetHelthyId": "{% $states.result.TargetHealthDescriptions[TargetHealth.State='healthy'].Target.Id %}"
+              }
+            },
+            "Compare Num of APM Bid Log and Num of ELB Instance": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Next": "APM Log Missing Alert",
+                  "Condition": "{% ($states.input.S3KeyCount>0) and ($states.input.S3KeyCount) < ($count($states.input.TargetHelthyId)) %}",
+                  "Output": {
+                    "S3Logs": "{% $states.input.S3Logs %}",
+                    "ElbTargetHealthDescriptions": "{% $states.input.ElbTargetHealthDescriptions %}"
+                  }
+                },
+                {
+                  "Next": "APMBid Crawler End",
+                  "Condition": "{% $states.input.S3Logs.KeyCount=0 %}"
+                }
+              ],
+              "Default": "APM Bid Crawler Last Status"
+            },
+            "APM Bid Crawler Last Status": {
+              "Type": "Task",
+              "Arguments": {
+                "Name": "ptbwa-apm-bid-hourly"
+              },
+              "Resource": "arn:aws:states:::aws-sdk:glue:getWorkflow",
+              "Next": "APM Bid Crawler Last Status Choice",
+              "Output": {
+                "LastRunStatus": "{% $states.result.Workflow.LastRun.Status %}"
+              }
+            },
+            "APM Bid Crawler Last Status Choice": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Next": "Run APM Bid Crawler",
+                  "Condition": "{% $states.input.LastRunStatus='COMPLETED' or $states.input.LastRunStatus='STOPPED' or $states.input.LastRunStatus='ERROR' %}"
+                }
+              ],
+              "Default": "APMBid Crawler End"
+            },
+            "Run APM Bid Crawler": {
+              "Type": "Task",
+              "Arguments": {
+                "Name": "ptbwa-apm-bid-hourly"
+              },
+              "Resource": "arn:aws:states:::aws-sdk:glue:startWorkflowRun",
+              "Next": "APM Bid Crawler Status",
+              "Assign": {
+                "ApmBidCrawlerRunId": "{% $states.result.RunId %}"
+              },
+              "Catch": [
+                {
+                  "ErrorEquals": [
+                    "States.TaskFailed"
+                  ],
+                  "Next": "APMBid Crawler End"
+                }
+              ]
+            },
+            "APM Bid Crawler Status": {
+              "Type": "Task",
+              "Arguments": {
+                "Name": "ptbwa-apm-bid-hourly",
+                "RunId": "{% $ApmBidCrawlerRunId %}"
+              },
+              "Resource": "arn:aws:states:::aws-sdk:glue:getWorkflowRun",
+              "Next": "APM Bid Crawler Status Choice"
+            },
+            "APM Bid Crawler Status Choice": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Next": "APM Bid Crawler Wait",
+                  "Condition": "{% $states.input.Run.Status=\"RUNNING\" or $states.input.Run.Status=\"STOPPING\" %}"
+                },
+                {
+                  "Next": "APM Flatten",
+                  "Condition": "{% $states.input.Run.Status=\"COMPLETED\" %}"
+                },
+                {
+                  "Next": "APMBid Crawler End",
+                  "Condition": "{% $states.input.Run.Status=\"STOPPED\" %}"
+                }
+              ],
+              "Default": "APMBid Crawler End"
+            },
+            "APM Bid Crawler Wait": {
+              "Type": "Wait",
+              "Seconds": 30,
+              "Next": "APM Bid Crawler Status"
+            },
+            "APMBid Crawler End": {
+              "Type": "Pass",
+              "End": true
+            },
+            "APM Log Missing Alert": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Output": "{% $states.result.Payload %}",
+              "Arguments": {
+                "FunctionName": "arn:aws:lambda:ap-northeast-2:170217667865:function:PtbwaLogMissingAlert:prod",
+                "Payload": {
+                  "S3Logs": "{% $states.input.S3Logs %}",
+                  "ElbTargetHealthDescriptions": "{% $states.input.ElbTargetHealthDescriptions %}",
+                  "Bucket": "propfit-bid-logs",
+                  "Prefix": "{% $join(['bid_log/year=',$split($split($Date, ' ', 1)[0], '-')[0],'/month=', $split($split($Date, ' ', 1)[0], '-')[1],'/day=',$split($split($Date, ' ', 1)[0], '-')[2],'/hour=',$split($split($Date, ' ', 2)[1], ':')[0]]) %}"
+                }
+              },
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException",
+                    "Lambda.SdkClientException",
+                    "Lambda.TooManyRequestsException"
+                  ],
+                  "IntervalSeconds": 1,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2,
+                  "JitterStrategy": "FULL"
+                }
+              ],
+              "Next": "APM Bid Crawler Last Status"
+            },
+            "APM Flatten": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::states:startExecution.sync:2",
+              "Arguments": {
+                "StateMachineArn": "arn:aws:states:ap-northeast-2:170217667865:stateMachine:athena-insert-data:prod",
+                "Input": {
+                  "date": "{% $Date %}",
+                  "bucket": "ptbwa-dw",
+                  "athena_dirs": "prod/apm_bid_log_flatten",
+                  "query_type": "prod-apm_bid_log_flatten",
+                  "query_dirs": "ptbwa"
+                }
+              },
+              "End": true,
+              "Catch": [
+                {
+                  "ErrorEquals": [
+                    "States.TaskFailed"
+                  ],
+                  "Next": "APMBid Crawler End"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "StartAt": "NHN Bid",
+          "States": {
+            "NHN Bid": {
+              "Type": "Task",
+              "Arguments": {
+                "Bucket": "propfit-bid-logs",
+                "Prefix": "{% $join(['nhn/propfit_log/nhn_bid_log/year=',$split($split($Date, ' ', 1)[0], '-')[0],'/month=', $split($split($Date, ' ', 1)[0], '-')[1],'/day=',$split($split($Date, ' ', 1)[0], '-')[2],'/hour=',$split($split($Date, ' ', 2)[1], ':')[0]]) %}"
+              },
+              "Resource": "arn:aws:states:::aws-sdk:s3:listObjectsV2",
+              "Next": "NHN Bid ELB",
+              "Output": {
+                "S3Logs": "{% $states.result %}"
+              }
+            },
+            "NHN Bid ELB": {
+              "Type": "Task",
+              "Arguments": {
+                "TargetGroupArn": "arn:aws:elasticloadbalancing:ap-northeast-2:170217667865:targetgroup/propfit-v2-bidder-tg/94e0ce7a9295c11d"
+              },
+              "Resource": "arn:aws:states:::aws-sdk:elasticloadbalancingv2:describeTargetHealth",
+              "Next": "Compare Num of NHN Bid Log and Num of ELB Instance",
+              "Output": {
+                "S3Logs": "{% $states.input.S3Logs %}",
+                "ElbTargetHealthDescriptions": "{% $states.result %}",
+                "S3KeyCount": "{% $states.input.S3Logs.KeyCount %}",
+                "TargetHelthyId": "{% $states.result.TargetHealthDescriptions[TargetHealth.State='healthy'].Target.Id %}"
+              }
+            },
+            "Compare Num of NHN Bid Log and Num of ELB Instance": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Next": "NHN Log Missing Alert",
+                  "Condition": "{% ($states.input.S3KeyCount>0) and ($count($states.input.S3Logs.Contents[$contains(Key, '_w0.log.gz')])) < ($count($states.input.TargetHelthyId)) %}",
+                  "Output": {
+                    "S3Logs": "{% $states.input.S3Logs %}",
+                    "ElbTargetHealthDescriptions": "{% $states.input.ElbTargetHealthDescriptions %}"
+                  }
+                },
+                {
+                  "Next": "NHN Bid Crawler End",
+                  "Condition": "{% $states.input.S3Logs.KeyCount=0 %}"
+                }
+              ],
+              "Default": "NHN Bid Crawler Last Status"
+            },
+            "NHN Bid Crawler Last Status": {
+              "Type": "Task",
+              "Arguments": {
+                "Name": "ptbwa-nhn-bid"
+              },
+              "Resource": "arn:aws:states:::aws-sdk:glue:getWorkflow",
+              "Next": "NHN Bid Crawler Last Status Choice",
+              "Output": {
+                "LastRunStatus": "{% $states.result.Workflow.LastRun.Status %}"
+              }
+            },
+            "NHN Bid Crawler Last Status Choice": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Next": "Run NHN Bid Crawler",
+                  "Condition": "{% $states.input.LastRunStatus='COMPLETED' or $states.input.LastRunStatus='STOPPED' or $states.input.LastRunStatus='ERROR' %}"
+                }
+              ],
+              "Default": "NHN Bid Crawler End"
+            },
+            "Run NHN Bid Crawler": {
+              "Type": "Task",
+              "Arguments": {
+                "Name": "ptbwa-nhn-bid"
+              },
+              "Resource": "arn:aws:states:::aws-sdk:glue:startWorkflowRun",
+              "Next": "NHN Bid Crawler Status",
+              "Assign": {
+                "NhnBidCrawlerRunId": "{% $states.result.RunId %}"
+              },
+              "Catch": [
+                {
+                  "ErrorEquals": [
+                    "States.TaskFailed"
+                  ],
+                  "Next": "NHN Bid Crawler End"
+                }
+              ]
+            },
+            "NHN Bid Crawler End": {
+              "Type": "Pass",
+              "End": true
+            },
+            "NHN Bid Crawler Status": {
+              "Type": "Task",
+              "Arguments": {
+                "Name": "ptbwa-nhn-bid",
+                "RunId": "{% $NhnBidCrawlerRunId %}"
+              },
+              "Resource": "arn:aws:states:::aws-sdk:glue:getWorkflowRun",
+              "Next": "NHN Bid Crawler Status Choice"
+            },
+            "NHN Bid Crawler Status Choice": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Next": "NHN Bid Crawler Wait",
+                  "Condition": "{% $states.input.Run.Status=\"RUNNING\" or $states.input.Run.Status=\"STOPPING\" %}"
+                },
+                {
+                  "Next": "NHN Flatten",
+                  "Condition": "{% $states.input.Run.Status=\"COMPLETED\" %}"
+                },
+                {
+                  "Next": "NHN Bid Crawler End",
+                  "Condition": "{% $states.input.Run.Status=\"STOPPED\" %}"
+                }
+              ],
+              "Default": "NHN Bid Crawler End"
+            },
+            "NHN Bid Crawler Wait": {
+              "Type": "Wait",
+              "Seconds": 30,
+              "Next": "NHN Bid Crawler Status"
+            },
+            "NHN Flatten": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::states:startExecution.sync:2",
+              "Arguments": {
+                "StateMachineArn": "arn:aws:states:ap-northeast-2:170217667865:stateMachine:athena-insert-data:prod",
+                "Input": {
+                  "date": "{% $Date %}",
+                  "bucket": "ptbwa-dw",
+                  "athena_dirs": "prod/nhn_bid_log_flatten",
+                  "query_type": "prod-nhn_bid_log_flatten",
+                  "query_dirs": "ptbwa"
+                }
+              },
+              "End": true,
+              "Catch": [
+                {
+                  "ErrorEquals": [
+                    "States.TaskFailed"
+                  ],
+                  "Next": "NHN Bid Crawler End"
+                }
+              ]
+            },
+            "NHN Log Missing Alert": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Output": "{% $states.result.Payload %}",
+              "Arguments": {
+                "FunctionName": "arn:aws:lambda:ap-northeast-2:170217667865:function:PtbwaLogMissingAlert:prod",
+                "Payload": {
+                  "S3Logs": "{% $states.input.S3Logs %}",
+                  "ElbTargetHealthDescriptions": "{% $states.input.ElbTargetHealthDescriptions %}",
+                  "Bucket": "propfit-bid-logs",
+                  "Prefix": "{% $join(['nhn/propfit_log/nhn_bid_log/year=',$split($split($Date, ' ', 1)[0], '-')[0],'/month=', $split($split($Date, ' ', 1)[0], '-')[1],'/day=',$split($split($Date, ' ', 1)[0], '-')[2],'/hour=',$split($split($Date, ' ', 2)[1], ':')[0]]) %}"
+                }
+              },
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException",
+                    "Lambda.SdkClientException",
+                    "Lambda.TooManyRequestsException"
+                  ],
+                  "IntervalSeconds": 1,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2,
+                  "JitterStrategy": "FULL"
+                }
+              ],
+              "Next": "NHN Bid Crawler Last Status"
+            }
+          }
+        }
+      ],
+      "End": true
+    }
+  },
+  "QueryLanguage": "JSONata"
+}

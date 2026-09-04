@@ -1,0 +1,354 @@
+{
+  "Comment": "A description of my state machine",
+  "StartAt": "Wait Until Created All Logs",
+  "States": {
+    "Wait Until Created All Logs": {
+      "Type": "Wait",
+      "Seconds": 120,
+      "Next": "Parallel",
+      "Assign": {
+        "Date": "{% $states.input.date %}"
+      }
+    },
+    "Parallel": {
+      "Type": "Parallel",
+      "Branches": [
+        {
+          "StartAt": "Abi Postback",
+          "States": {
+            "Abi Postback": {
+              "Type": "Task",
+              "Arguments": {
+                "Bucket": "propfit-bid-logs",
+                "Prefix": "{% $join(['ab/propfit_log/ab_postback_log/year=',$split($split($Date, ' ', 1)[0], '-')[0],'/month=', $split($split($Date, ' ', 1)[0], '-')[1],'/day=',$split($split($Date, ' ', 1)[0], '-')[2],'/hour=',$split($split($Date, ' ', 2)[1], ':')[0]]) %}"
+              },
+              "Resource": "arn:aws:states:::aws-sdk:s3:listObjectsV2",
+              "Next": "Abi ELB",
+              "Output": {
+                "S3Logs": "{% $states.result %}"
+              }
+            },
+            "Abi ELB": {
+              "Type": "Task",
+              "Arguments": {
+                "TargetGroupArn": "arn:aws:elasticloadbalancing:ap-northeast-2:170217667865:targetgroup/propfit-authorizedbuyers/4f28ac788885b72b"
+              },
+              "Resource": "arn:aws:states:::aws-sdk:elasticloadbalancingv2:describeTargetHealth",
+              "Next": "Compare Num of Abi Postback Log and Num of ELB Instance",
+              "Output": {
+                "S3Logs": "{% $states.input.S3Logs %}",
+                "ElbTargetHealthDescriptions": "{% $states.result %}",
+                "S3KeyCount": "{% $states.input.S3Logs.KeyCount %}",
+                "TargetHelthyId": "{% $states.result.TargetHealthDescriptions[TargetHealth.State='healthy'].Target.Id %}"
+              }
+            },
+            "Compare Num of Abi Postback Log and Num of ELB Instance": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Condition": "{% ($states.input.S3KeyCount>0) and ($states.input.S3KeyCount) < ($count($states.input.TargetHelthyId)) %}",
+                  "Next": "Abi Log Missing Alert",
+                  "Output": {
+                    "S3Logs": "{% $states.input.S3Logs %}",
+                    "ElbTargetHealthDescriptions": "{% $states.input.ElbTargetHealthDescriptions %}"
+                  }
+                }
+              ],
+              "Default": "Abi End"
+            },
+            "Abi Log Missing Alert": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Output": "{% $states.result.Payload %}",
+              "Arguments": {
+                "FunctionName": "arn:aws:lambda:ap-northeast-2:170217667865:function:PtbwaLogMissingAlert:prod",
+                "Payload": {
+                  "S3Logs": "{% $states.input.S3Logs %}",
+                  "ElbTargetHealthDescriptions": "{% $states.input.ElbTargetHealthDescriptions %}",
+                  "Bucket": "propfit-bid-logs",
+                  "Prefix": "{% $join(['ab/propfit_log/ab_postback_log/year=',$split($split($Date, ' ', 1)[0], '-')[0],'/month=', $split($split($Date, ' ', 1)[0], '-')[1],'/day=',$split($split($Date, ' ', 1)[0], '-')[2],'/hour=',$split($split($Date, ' ', 2)[1], ':')[0]]) %}"
+                }
+              },
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException",
+                    "Lambda.SdkClientException",
+                    "Lambda.TooManyRequestsException"
+                  ],
+                  "IntervalSeconds": 1,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2,
+                  "JitterStrategy": "FULL"
+                }
+              ],
+              "Next": "Abi End"
+            },
+            "Abi End": {
+              "Type": "Pass",
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "APM Postback",
+          "States": {
+            "APM Postback": {
+              "Type": "Task",
+              "Arguments": {
+                "Bucket": "propfit-bid-logs",
+                "Prefix": "{% $join(['postback_log/year=',$split($split($Date, ' ', 1)[0], '-')[0],'/month=', $split($split($Date, ' ', 1)[0], '-')[1],'/day=',$split($split($Date, ' ', 1)[0], '-')[2],'/hour=',$split($split($Date, ' ', 2)[1], ':')[0]]) %}"
+              },
+              "Resource": "arn:aws:states:::aws-sdk:s3:listObjectsV2",
+              "Next": "APM ELB",
+              "Output": {
+                "S3Logs": "{% $states.result %}"
+              }
+            },
+            "APM ELB": {
+              "Type": "Task",
+              "Arguments": {
+                "TargetGroupArn": "arn:aws:elasticloadbalancing:ap-northeast-2:170217667865:targetgroup/propfit-01-tg/43298b14ec795cbd"
+              },
+              "Resource": "arn:aws:states:::aws-sdk:elasticloadbalancingv2:describeTargetHealth",
+              "Next": "Compare Num of APM Postback Log and Num of ELB Instance",
+              "Output": {
+                "S3Logs": "{% $states.input.S3Logs %}",
+                "ElbTargetHealthDescriptions": "{% $states.result %}",
+                "S3KeyCount": "{% $states.input.S3Logs.KeyCount %}",
+                "TargetHelthyId": "{% $states.result.TargetHealthDescriptions[TargetHealth.State='healthy'].Target.Id %}"
+              }
+            },
+            "Compare Num of APM Postback Log and Num of ELB Instance": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Condition": "{% ($states.input.S3KeyCount>0) and ($states.input.S3KeyCount) < ($count($states.input.TargetHelthyId)) %}",
+                  "Output": {
+                    "S3Logs": "{% $states.input.S3Logs %}",
+                    "ElbTargetHealthDescriptions": "{% $states.input.ElbTargetHealthDescriptions %}"
+                  },
+                  "Next": "APM Log Missing Alert"
+                }
+              ],
+              "Default": "APM End"
+            },
+            "APM Log Missing Alert": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Output": "{% $states.result.Payload %}",
+              "Arguments": {
+                "FunctionName": "arn:aws:lambda:ap-northeast-2:170217667865:function:PtbwaLogMissingAlert:prod",
+                "Payload": {
+                  "S3Logs": "{% $states.input.S3Logs %}",
+                  "ElbTargetHealthDescriptions": "{% $states.input.ElbTargetHealthDescriptions %}",
+                  "Bucket": "propfit-bid-logs",
+                  "Prefix": "{% $join(['postback_log/year=',$split($split($Date, ' ', 1)[0], '-')[0],'/month=', $split($split($Date, ' ', 1)[0], '-')[1],'/day=',$split($split($Date, ' ', 1)[0], '-')[2],'/hour=',$split($split($Date, ' ', 2)[1], ':')[0]]) %}"
+                }
+              },
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException",
+                    "Lambda.SdkClientException",
+                    "Lambda.TooManyRequestsException"
+                  ],
+                  "IntervalSeconds": 1,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2,
+                  "JitterStrategy": "FULL"
+                }
+              ],
+              "Next": "APM End"
+            },
+            "APM End": {
+              "Type": "Pass",
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "NHN Postback",
+          "States": {
+            "NHN Postback": {
+              "Type": "Task",
+              "Arguments": {
+                "Bucket": "propfit-bid-logs",
+                "Prefix": "{% $join(['nhn/propfit_log/nhn_postback_log/year=',$split($split($Date, ' ', 1)[0], '-')[0],'/month=', $split($split($Date, ' ', 1)[0], '-')[1],'/day=',$split($split($Date, ' ', 1)[0], '-')[2],'/hour=',$split($split($Date, ' ', 2)[1], ':')[0]]) %}"
+              },
+              "Resource": "arn:aws:states:::aws-sdk:s3:listObjectsV2",
+              "Next": "NHN ELB",
+              "Output": {
+                "S3Logs": "{% $states.result %}"
+              }
+            },
+            "NHN ELB": {
+              "Type": "Task",
+              "Arguments": {
+                "TargetGroupArn": "arn:aws:elasticloadbalancing:ap-northeast-2:170217667865:targetgroup/propfit-v2-bidder-tg/94e0ce7a9295c11d"
+              },
+              "Resource": "arn:aws:states:::aws-sdk:elasticloadbalancingv2:describeTargetHealth",
+              "Next": "Compare Num of NHN Postback Log and Num of ELB Instance",
+              "Output": {
+                "S3Logs": "{% $states.input.S3Logs %}",
+                "ElbTargetHealthDescriptions": "{% $states.result %}",
+                "S3KeyCount": "{% $states.input.S3Logs.KeyCount %}",
+                "TargetHelthyId": "{% $states.result.TargetHealthDescriptions[TargetHealth.State='healthy'].Target.Id %}"
+              }
+            },
+            "Compare Num of NHN Postback Log and Num of ELB Instance": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Condition": "{% ($states.input.S3KeyCount>0) and ($count($states.input.S3Logs.Contents[$contains(Key, '_w0.log.gz')])) < ($count($states.input.TargetHelthyId)) %}",
+                  "Next": "NHN Log Missing Alert",
+                  "Output": {
+                    "S3Logs": "{% $states.input.S3Logs %}",
+                    "ElbTargetHealthDescriptions": "{% $states.input.ElbTargetHealthDescriptions %}"
+                  }
+                }
+              ],
+              "Default": "NHN End"
+            },
+            "NHN Log Missing Alert": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Output": "{% $states.result.Payload %}",
+              "Arguments": {
+                "FunctionName": "arn:aws:lambda:ap-northeast-2:170217667865:function:PtbwaLogMissingAlert:prod",
+                "Payload": {
+                  "S3Logs": "{% $states.input.S3Logs %}",
+                  "ElbTargetHealthDescriptions": "{% $states.input.ElbTargetHealthDescriptions %}",
+                  "Bucket": "propfit-bid-logs",
+                  "Prefix": "{% $join(['nhn/propfit_log/nhn_postback_log/year=',$split($split($Date, ' ', 1)[0], '-')[0],'/month=', $split($split($Date, ' ', 1)[0], '-')[1],'/day=',$split($split($Date, ' ', 1)[0], '-')[2],'/hour=',$split($split($Date, ' ', 2)[1], ':')[0]]) %}"
+                }
+              },
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException",
+                    "Lambda.SdkClientException",
+                    "Lambda.TooManyRequestsException"
+                  ],
+                  "IntervalSeconds": 1,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2,
+                  "JitterStrategy": "FULL"
+                }
+              ],
+              "Next": "NHN End"
+            },
+            "NHN End": {
+              "Type": "Pass",
+              "End": true
+            }
+          }
+        }
+      ],
+      "Next": "Postback Crawler Last Run Status"
+    },
+    "Postback Crawler Last Run Status": {
+      "Type": "Task",
+      "Arguments": {
+        "Name": "ptbwa-postback-hourly"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:glue:getWorkflow",
+      "Next": "Postback Crawler Last Run Status Choice",
+      "Output": {
+        "LastRunStatus": "{% $states.result.Workflow.LastRun.Status %}"
+      }
+    },
+    "Postback Crawler Last Run Status Choice": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Next": "Postback Crawler Run Pass",
+          "Condition": "{% $states.input.LastRunStatus='RUNNING' or $states.input.LastRunStatus='STOPPING' %}"
+        }
+      ],
+      "Default": "Run Postback Crawler"
+    },
+    "Run Postback Crawler": {
+      "Type": "Task",
+      "Arguments": {
+        "Name": "ptbwa-postback-hourly"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:glue:startWorkflowRun",
+      "Next": "Postback Crawler Status",
+      "Assign": {
+        "PostbackCrawlerRunId": "{% $states.result.RunId %}"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "Postback Crawler Run Pass"
+        }
+      ]
+    },
+    "Postback Crawler Run Pass": {
+      "Type": "Pass",
+      "End": true
+    },
+    "Postback Crawler Status": {
+      "Type": "Task",
+      "Arguments": {
+        "Name": "ptbwa-postback-hourly",
+        "RunId": "{% $PostbackCrawlerRunId %}"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:glue:getWorkflowRun",
+      "Next": "Postback Crawler Status Choice"
+    },
+    "Postback Crawler Status Choice": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Next": "Postback Crawler Run Wait",
+          "Condition": "{% $states.input.Run.Status=\"RUNNING\" or $states.input.Run.Status=\"STOPPING\" %}"
+        },
+        {
+          "Next": "General Agg",
+          "Condition": "{% $states.input.Run.Status=\"COMPLETED\" %}"
+        },
+        {
+          "Next": "Postback Crawler Run Fail",
+          "Condition": "{% $states.input.Run.Status=\"ERROR\" %}"
+        }
+      ],
+      "Default": "Postback Crawler Run Pass"
+    },
+    "Postback Crawler Run Wait": {
+      "Type": "Wait",
+      "Seconds": 30,
+      "Next": "Postback Crawler Status"
+    },
+    "General Agg": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::states:startExecution.sync:2",
+      "Arguments": {
+        "StateMachineArn": "arn:aws:states:ap-northeast-2:170217667865:stateMachine:ptbwa-log-agg:prod",
+        "Input": {
+          "date": "{% $Date %}",
+          "bucket": "ptbwa-da",
+          "athena_dirs": "prod/report_summary_hour",
+          "query_dirs": "ptbwa",
+          "query_type": "prod-report_summary_hour",
+          "athena_result_base_path": "s3://ptbwa-da/prod/report_summary_hour",
+          "athena_db": "prod-ptbwa-da",
+          "athena_table": "report_summary_hour",
+          "rdb_db": "ptbwa_propfit",
+          "rdb_table": "report_summary_hour"
+        }
+      },
+      "End": true
+    },
+    "Postback Crawler Run Fail": {
+      "Type": "Fail"
+    }
+  },
+  "QueryLanguage": "JSONata"
+}

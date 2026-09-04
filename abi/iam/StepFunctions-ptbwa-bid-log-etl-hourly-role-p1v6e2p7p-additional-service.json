@@ -1,0 +1,39 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "Statement1",
+            "Effect": "Allow",
+            "Action": [
+                "s3:ListBucket"
+            ],
+            "Resource": [
+                "arn:aws:s3:::propfit-bid-logs"
+            ]
+        },
+        {
+            "Sid": "Statement2",
+            "Effect": "Allow",
+            "Action": [
+                "elasticloadbalancing:DescribeTargetHealth"
+            ],
+            "Resource": [
+                "*"
+            ]
+        },
+        {
+            "Sid": "Statement3",
+            "Effect": "Allow",
+            "Action": [
+                "glue:GetWorkflow",
+                "glue:GetWorkflowRun",
+                "glue:StartWorkflowRun"
+            ],
+            "Resource": [
+                "arn:aws:glue:ap-northeast-2:170217667865:workflow/ptbwa-abi-bid-hourly",
+                "arn:aws:glue:ap-northeast-2:170217667865:workflow/ptbwa-apm-bid-hourly",
+                "arn:aws:glue:ap-northeast-2:170217667865:workflow/ptbwa-nhn-bid"
+            ]
+        }
+    ]
+}

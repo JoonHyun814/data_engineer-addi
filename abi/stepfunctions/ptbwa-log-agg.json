@@ -1,0 +1,95 @@
+{
+  "Comment": "A description of my state machine",
+  "StartAt": "Athena Agg",
+  "States": {
+    "Athena Agg": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::states:startExecution.sync:2",
+      "Arguments": {
+        "StateMachineArn": "arn:aws:states:ap-northeast-2:170217667865:stateMachine:athena-insert-data:prod",
+        "Input": {
+          "date": "{% $states.input.date %}",
+          "bucket": "{% $states.input.bucket %}",
+          "athena_dirs": "{% $states.input.athena_dirs %}",
+          "query_dirs": "{% $states.input.query_dirs %}",
+          "query_type": "{% $states.input.query_type %}"
+        }
+      },
+      "Next": "Agg Insert To RDB",
+      "Assign": {
+        "Date": "{% $states.input.date %}",
+        "AthenaResultBasePath": "{% $states.input.athena_result_base_path %}",
+        "AthenaDb": "{% $states.input.athena_db %}",
+        "AthenaTable": "{% $states.input.athena_table %}",
+        "RdbDb": "{% $states.input.rdb_db %}",
+        "RdbTable": "{% $states.input.rdb_table %}",
+        "ExecutionArn": "{% $states.result.ExecutionArn %}"
+      }
+    },
+    "Agg Insert To RDB": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun",
+      "Arguments": {
+        "JobName": "insert-athena-data-to-rdb",
+        "Arguments": {
+          "--date": "{% $Date %}",
+          "--athena_result_base_path": "{% $AthenaResultBasePath %}",
+          "--athena_db": "{% $AthenaDb %}",
+          "--athena_table": "{% $AthenaTable %}",
+          "--rdb_db": "{% $RdbDb %}",
+          "--rdb_table": "{% $RdbTable %}"
+        }
+      },
+      "Next": "Agg Insert To RDB Run Status",
+      "Assign": {
+        "JobRunId": "{% $states.result.JobRunId %}"
+      }
+    },
+    "Agg Insert To RDB Run Status": {
+      "Type": "Task",
+      "Arguments": {
+        "JobName": "insert-athena-data-to-rdb",
+        "RunId": "{% $JobRunId %}"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:glue:getJobRun",
+      "Next": "Agg Insert To RDB Run Status Choice",
+      "Output": {
+        "JobRunState": "{% $states.result.JobRun.JobRunState %}"
+      }
+    },
+    "Agg Insert To RDB Run Status Choice": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Next": "Agg Insert To RDB Run Wait",
+          "Condition": "{% $states.input.JobRunState = \"STARTING\" or $states.input.JobRunState = \"RUNNING\" or $states.input.JobRunState = \"STOPPING\" or $states.input.JobRunState = \"WAITING\" %}"
+        },
+        {
+          "Next": "Agg Insert To RDB Run Success",
+          "Condition": "{% $states.input.JobRunState = 'SUCCEEDED' %}"
+        },
+        {
+          "Next": "Agg Insert To RDB Run Pass",
+          "Condition": "{% $states.input.JobRunState = 'STOPPED' %}"
+        }
+      ],
+      "Default": "Agg Insert To RDB Run Fail"
+    },
+    "Agg Insert To RDB Run Wait": {
+      "Type": "Wait",
+      "Seconds": 30,
+      "Next": "Agg Insert To RDB Run Status"
+    },
+    "Agg Insert To RDB Run Fail": {
+      "Type": "Fail"
+    },
+    "Agg Insert To RDB Run Success": {
+      "Type": "Succeed"
+    },
+    "Agg Insert To RDB Run Pass": {
+      "Type": "Pass",
+      "End": true
+    }
+  },
+  "QueryLanguage": "JSONata"
+}

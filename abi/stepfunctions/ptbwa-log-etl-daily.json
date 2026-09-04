@@ -1,0 +1,416 @@
+{
+  "Comment": "A description of my state machine",
+  "StartAt": "Input Variable",
+  "States": {
+    "Input Variable": {
+      "Type": "Pass",
+      "Next": "Is Exist Log",
+      "Assign": {
+        "Date": "{% $states.input.date %}"
+      }
+    },
+    "Is Exist Log": {
+      "Type": "Parallel",
+      "Next": "Choice",
+      "Branches": [
+        {
+          "StartAt": "Abi Postback",
+          "States": {
+            "Abi Postback": {
+              "Type": "Task",
+              "Arguments": {
+                "Bucket": "propfit-bid-logs",
+                "Prefix": "{% $join(['ab/propfit_log/ab_postback_log/year=',$split($split($Date, ' ', 1)[0], '-')[0],'/month=', $split($split($Date, ' ', 1)[0], '-')[1],'/day=',$split($split($Date, ' ', 1)[0], '-')[2]]) %}"
+              },
+              "Resource": "arn:aws:states:::aws-sdk:s3:listObjectsV2",
+              "End": true,
+              "Output": {
+                "AbiS3Logs": "{% $states.result %}"
+              }
+            }
+          }
+        },
+        {
+          "StartAt": "APM Postback",
+          "States": {
+            "APM Postback": {
+              "Type": "Task",
+              "Arguments": {
+                "Bucket": "propfit-bid-logs",
+                "Prefix": "{% $join(['postback_log/year=',$split($split($Date, ' ', 1)[0], '-')[0],'/month=', $split($split($Date, ' ', 1)[0], '-')[1],'/day=',$split($split($Date, ' ', 1)[0], '-')[2],'/hour=',$split($split($Date, ' ', 2)[1], ':')[0]]) %}"
+              },
+              "Resource": "arn:aws:states:::aws-sdk:s3:listObjectsV2",
+              "End": true,
+              "Output": {
+                "ApmS3Logs": "{% $states.result %}"
+              }
+            }
+          }
+        },
+        {
+          "StartAt": "NHN Postback",
+          "States": {
+            "NHN Postback": {
+              "Type": "Task",
+              "Arguments": {
+                "Bucket": "propfit-bid-logs",
+                "Prefix": "{% $join(['nhn/propfit_log/nhn_postback_log/year=',$split($split($Date, ' ', 1)[0], '-')[0],'/month=', $split($split($Date, ' ', 1)[0], '-')[1],'/day=',$split($split($Date, ' ', 1)[0], '-')[2]]) %}"
+              },
+              "Resource": "arn:aws:states:::aws-sdk:s3:listObjectsV2",
+              "End": true,
+              "Output": {
+                "NhnS3Logs": "{% $states.result %}"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "Choice": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Next": "Cralwer Last Run Status",
+          "Condition": "{% $states.input.AbiS3Logs.KeyCount>0 or $states.input.ApmS3Logs.KeyCount>0 or $states.input.NhnS3Logs.KeyCount>0 %}"
+        }
+      ],
+      "Default": "Run Crawler Pass"
+    },
+    "Cralwer Last Run Status": {
+      "Type": "Task",
+      "Arguments": {
+        "Name": "ptbwa-log-daily"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:glue:getWorkflow",
+      "Next": "Cralwer Last Run Status Choice",
+      "Output": {
+        "LastRunStatus": "{% $states.result.Workflow.LastRun.Status %}"
+      }
+    },
+    "Cralwer Last Run Status Choice": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Next": "Run Crawler",
+          "Condition": "{% $states.input.LastRunStatus='COMPLETED' or $states.input.LastRunStatus='STOPPED' or $states.input.LastRunStatus='ERROR' %}"
+        }
+      ],
+      "Default": "Run Crawler Pass"
+    },
+    "Run Crawler": {
+      "Type": "Task",
+      "Arguments": {
+        "Name": "ptbwa-log-daily"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:glue:startWorkflowRun",
+      "Next": "Run Crawler Status",
+      "Assign": {
+        "RunId": "{% $states.result.RunId %}"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "Run Crawler Pass"
+        }
+      ]
+    },
+    "Run Crawler Status": {
+      "Type": "Task",
+      "Arguments": {
+        "Name": "ptbwa-log-daily",
+        "RunId": "{% $RunId %}"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:glue:getWorkflowRun",
+      "Next": "Run Crawler Status Choice"
+    },
+    "Run Crawler Status Choice": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Next": "Wait",
+          "Condition": "{% $states.input.Run.Status=\"RUNNING\" or $states.input.Run.Status=\"STOPPING\" %}"
+        },
+        {
+          "Next": "Agg",
+          "Condition": "{% $states.input.Run.Status=\"COMPLETED\" %}"
+        },
+        {
+          "Next": "Run Crawler Pass",
+          "Condition": "{% $states.input.Run.Status=\"STOPPED\" %}"
+        }
+      ],
+      "Default": "Run Crawler Fail"
+    },
+    "Wait": {
+      "Type": "Wait",
+      "Seconds": 30,
+      "Next": "Run Crawler Status"
+    },
+    "Run Crawler Fail": {
+      "Type": "Fail"
+    },
+    "Run Crawler Pass": {
+      "Type": "Pass",
+      "End": true
+    },
+    "Agg": {
+      "Type": "Parallel",
+      "Branches": [
+        {
+          "StartAt": "General Agg",
+          "States": {
+            "General Agg": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::states:startExecution.sync:2",
+              "Arguments": {
+                "StateMachineArn": "arn:aws:states:ap-northeast-2:170217667865:stateMachine:ptbwa-log-agg:prod",
+                "Input": {
+                  "date": "{% $Date %}",
+                  "bucket": "ptbwa-da",
+                  "athena_dirs": "prod/report_summary_daily",
+                  "query_dirs": "ptbwa",
+                  "query_type": "prod-report_summary_daily",
+                  "athena_result_base_path": "s3://ptbwa-da/prod/report_summary_daily",
+                  "athena_db": "prod-ptbwa-da",
+                  "athena_table": "report_summary_daily",
+                  "rdb_db": "ptbwa_propfit",
+                  "rdb_table": "report_summary_daily"
+                }
+              },
+              "Catch": [
+                {
+                  "ErrorEquals": [
+                    "States.TaskFailed"
+                  ],
+                  "Next": "General Agg Fail"
+                }
+              ],
+              "End": true
+            },
+            "General Agg Fail": {
+              "Type": "Pass",
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "Reach Agg",
+          "States": {
+            "Reach Agg": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::states:startExecution.sync:2",
+              "Arguments": {
+                "StateMachineArn": "arn:aws:states:ap-northeast-2:170217667865:stateMachine:ptbwa-log-agg:prod",
+                "Input": {
+                  "date": "{% $Date %}",
+                  "bucket": "ptbwa-da",
+                  "athena_dirs": "prod/report_summary_reach_daily",
+                  "query_dirs": "ptbwa",
+                  "query_type": "prod-report_summary_reach_daily",
+                  "athena_result_base_path": "s3://ptbwa-da/prod/report_summary_reach_daily",
+                  "athena_db": "prod-ptbwa-da",
+                  "athena_table": "report_summary_reach_daily",
+                  "rdb_db": "ptbwa_propfit",
+                  "rdb_table": "report_summary_reach_daily"
+                }
+              },
+              "Catch": [
+                {
+                  "ErrorEquals": [
+                    "States.TaskFailed"
+                  ],
+                  "Next": "Reach Agg Fail"
+                }
+              ],
+              "End": true
+            },
+            "Reach Agg Fail": {
+              "Type": "Pass",
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "Reach CMP Agg",
+          "States": {
+            "Reach CMP Agg": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::states:startExecution.sync:2",
+              "Arguments": {
+                "StateMachineArn": "arn:aws:states:ap-northeast-2:170217667865:stateMachine:ptbwa-log-agg:prod",
+                "Input": {
+                  "date": "{% $Date %}",
+                  "bucket": "ptbwa-da",
+                  "athena_dirs": "prod/report_summary_cmp_reach_daily",
+                  "query_dirs": "ptbwa",
+                  "query_type": "prod-report_summary_cmp_reach_daily",
+                  "athena_result_base_path": "s3://ptbwa-da/prod/report_summary_cmp_reach_daily",
+                  "athena_db": "prod-ptbwa-da",
+                  "athena_table": "report_summary_cmp_reach_daily",
+                  "rdb_db": "ptbwa_propfit",
+                  "rdb_table": "report_summary_cmp_reach_daily"
+                }
+              },
+              "Catch": [
+                {
+                  "ErrorEquals": [
+                    "States.TaskFailed"
+                  ],
+                  "Next": "Reach CMP Agg Fail"
+                }
+              ],
+              "End": true
+            },
+            "Reach CMP Agg Fail": {
+              "Type": "Pass",
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "Channel Agg",
+          "States": {
+            "Channel Agg": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::states:startExecution.sync:2",
+              "Arguments": {
+                "StateMachineArn": "arn:aws:states:ap-northeast-2:170217667865:stateMachine:ptbwa-log-agg:prod",
+                "Input": {
+                  "date": "{% $Date %}",
+                  "bucket": "ptbwa-da",
+                  "athena_dirs": "prod/report_summary_channel_daily",
+                  "query_dirs": "ptbwa",
+                  "query_type": "prod-report_summary_channel_daily",
+                  "athena_result_base_path": "s3://ptbwa-da/prod/report_summary_channel_daily",
+                  "athena_db": "prod-ptbwa-da",
+                  "athena_table": "report_summary_channel_daily",
+                  "rdb_db": "ptbwa_propfit",
+                  "rdb_table": "report_summary_channel_daily"
+                }
+              },
+              "End": true,
+              "Catch": [
+                {
+                  "ErrorEquals": [
+                    "States.TaskFailed"
+                  ],
+                  "Next": "Channel Agg Fail"
+                }
+              ]
+            },
+            "Channel Agg Fail": {
+              "Type": "Pass",
+              "End": true
+            }
+          }
+        }
+      ],
+      "Next": "데이터 정합성"
+    },
+    "데이터 정합성": {
+      "Type": "Parallel",
+      "End": true,
+      "Branches": [
+        {
+          "StartAt": "Compare report_summary_daily and report_summary_hour",
+          "States": {
+            "Compare report_summary_daily and report_summary_hour": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::states:startExecution.sync:2",
+              "Arguments": {
+                "StateMachineArn": "arn:aws:states:ap-northeast-2:170217667865:stateMachine:data-consistency:prod",
+                "Input": {
+                  "query_type": "prod-data_consistency_report_summary_hour_and_daily",
+                  "query_dirs": "ptbwa",
+                  "date": "{% $Date %}",
+                  "match_condition": 0,
+                  "error_message": "ptbwa_propfit.report_summary_hour와 ptbwa_propfit.report_summary_daily 테이블의 값이 일치하지 않습니다"
+                }
+              },
+              "Next": "Compare report_summary_daily and report_summary_hour Pass",
+              "Catch": [
+                {
+                  "ErrorEquals": [
+                    "States.TaskFailed"
+                  ],
+                  "Next": "Compare report_summary_daily and report_summary_hour Pass"
+                }
+              ]
+            },
+            "Compare report_summary_daily and report_summary_hour Pass": {
+              "Type": "Pass",
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "Compare report_summary_channel_daily and report_summary_hour",
+          "States": {
+            "Compare report_summary_channel_daily and report_summary_hour": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::states:startExecution.sync:2",
+              "Arguments": {
+                "StateMachineArn": "arn:aws:states:ap-northeast-2:170217667865:stateMachine:data-consistency:prod",
+                "Input": {
+                  "query_type": "prod-data_consistency_report_summary_daily_and_channel",
+                  "date": "{% $Date %}",
+                  "query_dirs": "ptbwa",
+                  "match_condition": 0,
+                  "error_message": "ptbwa_propfit.report_summary_daily와 ptbwa_propfit.report_summary_channel_daily 테이블의 값이 일치하지 않습니다"
+                }
+              },
+              "Next": "Compare report_summary_channel_daily and report_summary_hour Pass",
+              "Catch": [
+                {
+                  "ErrorEquals": [
+                    "States.TaskFailed"
+                  ],
+                  "Next": "Compare report_summary_channel_daily and report_summary_hour Pass"
+                }
+              ]
+            },
+            "Compare report_summary_channel_daily and report_summary_hour Pass": {
+              "Type": "Pass",
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "report_summary_reach_daily 음수 여부",
+          "States": {
+            "report_summary_reach_daily 음수 여부": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::states:startExecution.sync:2",
+              "Arguments": {
+                "StateMachineArn": "arn:aws:states:ap-northeast-2:170217667865:stateMachine:data-consistency:prod",
+                "Input": {
+                  "query_type": "prod-data_consistency_report_summary_reach_daily",
+                  "date": "{% $Date %}",
+                  "query_dirs": "ptbwa",
+                  "match_condition": 0,
+                  "error_message": "ptbwa_propfit.report_summary_reach_daily에 음수값이 있습니다"
+                }
+              },
+              "Next": "report_summary_reach_daily 음수 여부 Pass",
+              "Catch": [
+                {
+                  "ErrorEquals": [
+                    "States.TaskFailed"
+                  ],
+                  "Next": "report_summary_reach_daily 음수 여부 Pass"
+                }
+              ]
+            },
+            "report_summary_reach_daily 음수 여부 Pass": {
+              "Type": "Pass",
+              "End": true
+            }
+          }
+        }
+      ]
+    }
+  },
+  "QueryLanguage": "JSONata"
+}
