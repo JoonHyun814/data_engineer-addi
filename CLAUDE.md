@@ -8,6 +8,11 @@
 - `rds_query/` — RDS 테이블 생성 등 DDL.
 - `stepfunction/` — Step Functions 정의 및 IAM 정책 JSON.
 - `datas/` — 로컬 참조용 데이터 파일(gitignore 대상, 커밋하지 않음).
+- `stepfunction_resource_map.csv` — 모든 Step Function(addi, abi 포함)이 서로 어떤 상위/하위 Step Function, Lambda, Glue Job/Workflow, IAM 정책 파일과 연결되어 있는지 정리한 표. 리소스 관계를 파악할 땐 이 파일부터 확인한다.
+
+## stepfunction_resource_map.csv 동기화
+
+Step Function을 새로 추가하거나, 기존 Step Function이 호출하는 Lambda/Glue Job/하위 Step Function/IAM 정책이 바뀌는 변경(교체, 추가, 삭제)을 할 때마다 `stepfunction_resource_map.csv`도 같이 업데이트한다. 코드만 바꾸고 이 표를 갱신하지 않으면 표가 실제 배포 상태와 어긋나므로, 관련 변경을 담은 커밋에 표 수정도 함께 포함시킨다.
 
 ## 커밋 컨벤션
 
