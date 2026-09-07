@@ -52,14 +52,30 @@
       "Next": "BuildDateList"
     },
     "BuildDateList": {
-      "Comment": "start_date~end_date 사이 모든 날짜를 date_list 배열로 생성. 단일 날짜인 경우도 원소 1개짜리 배열로 통일해서 아래 Map에서 동일하게 처리한다.",
-      "Type": "Pass",
-      "QueryLanguage": "JSONata",
-      "Output": {
-        "start_date": "{% $states.input.start_date %}",
-        "end_date": "{% $states.input.end_date %}",
-        "date_list": "{% ( $sd := $toMillis($states.input.start_date & 'T00:00:00Z'); $ed := $toMillis($states.input.end_date & 'T00:00:00Z'); $days := ($ed - $sd) / 86400000; [0..$days].($fromMillis($sd + $ * 86400000, '[Y0001]-[M01]-[D01]')) ) %}"
+      "Comment": "start_date~end_date 사이 모든 날짜를 date_list 배열로 생성. DateUtil Lambda(Python list)로 만든다 — JSONata Pass state는 원소 1개짜리 배열이 스칼라로 축약되는 이슈가 있어 사용하지 않는다.",
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "DateUtil",
+        "Payload": {
+          "start_date.$": "$.start_date",
+          "end_date.$": "$.end_date"
+        }
       },
+      "ResultSelector": {
+        "start_date.$": "$.Payload.start_date",
+        "end_date.$": "$.Payload.end_date",
+        "date_list.$": "$.Payload.date_list"
+      },
+      "ResultPath": "$",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "JobFailed"
+        }
+      ],
       "Next": "RunRDStoAthenaFullRefresh"
     },
     "RunRDStoAthenaFullRefresh": {
