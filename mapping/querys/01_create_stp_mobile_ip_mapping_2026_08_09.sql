@@ -4,7 +4,8 @@
  *
  * 주의:
  * - Athena CTAS는 대상 테이블과 S3 경로가 비어 있어야 실행할 수 있다.
- * - 결과는 동일 사용자 확정값이 아니라 동일 IP 기반 후보 매핑이다.
+ * - APM 전체 모집단을 보존한다. 미매핑 행은 ad_id와 cate가 NULL이다.
+ * - 매핑 결과는 동일 사용자 확정값이 아니라 동일 IP 기반 후보 관계다.
  * - plattform_id는 요청된 컬럼명을 그대로 사용했다.
  */
 CREATE TABLE "dev-ptbwa-dw"."stp_mobile_ip_mapping_2026_08_09"
@@ -118,8 +119,8 @@ mobile_reference AS (
     FROM tg_mobile
 ),
 
-matched AS (
-    /* 5. 동일 IP 기반 셋톱–모바일 ADID 후보 매핑 */
+mapping_population AS (
+    /* 5. 전체 APM 모집단을 보존한 셋톱–모바일 ADID 후보 매핑 */
     SELECT DISTINCT
         a.stp_id AS plattform_id,
         m.mobile_adid AS ad_id,
@@ -127,7 +128,7 @@ matched AS (
         a.carrier,
         m.source_name AS cate
     FROM apm_pool a
-    INNER JOIN mobile_reference m
+    LEFT JOIN mobile_reference m
         ON a.apm_ip = m.match_ip
 )
 
@@ -137,4 +138,4 @@ SELECT
     ip,
     carrier,
     cate
-FROM matched;
+FROM mapping_population;
