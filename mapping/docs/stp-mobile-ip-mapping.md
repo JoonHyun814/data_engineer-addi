@@ -245,3 +245,8 @@ TG 매핑  = TG 단독 + 양쪽 중복
 - 매핑 테이블 생성: `mapping/querys/01_create_stp_mobile_ip_mapping_2026_08_09.sql`
 - 매핑 테이블 기반 리포트: `mapping/querys/02_stp_mobile_ip_mapping_report.sql`
 - 전체 1~11단계 참고용 SQL: `mapping/querys/stp_mobile_ip_mapping_2026_08_09.sql`
+- 주간 누적 테이블 생성: `mapping/querys/11_create_stb_mobile_mapping_weekly.sql`
+- 특정 주간 데이터 적재: `mapping/querys/12_insert_stb_mobile_mapping_weekly.sql`
+- current Iceberg 테이블 생성: `mapping/querys/21_create_stb_mobile_mapping_current.sql`
+- 주간 데이터 current 병합: `mapping/querys/22_merge_stb_mobile_mapping_current.sql`
+- 상세·요약 조회 뷰 생성: `mapping/querys/30_create_stb_mobile_mapping_views.sql`
