@@ -32,6 +32,7 @@ params AS (
 
 apm_base AS (
     SELECT
+        'APM' AS source,
         CASE
             WHEN LOWER(TRIM(CAST(a.app_bundle AS VARCHAR))) LIKE '%skb%' THEN 'SKB'
             WHEN LOWER(TRIM(CAST(a.app_bundle AS VARCHAR))) LIKE '%uplus%'
@@ -75,6 +76,7 @@ apm_base AS (
 
 addi_bid_base AS (
     SELECT
+        'ADDI_BID' AS source,
         CASE
             WHEN LOWER(TRIM(CAST(b.app_bundle AS VARCHAR))) LIKE '%skb%' THEN 'SKB'
             WHEN LOWER(TRIM(CAST(b.app_bundle AS VARCHAR))) LIKE '%uplus%'
@@ -132,6 +134,7 @@ addi_bid_base AS (
 addi_post_base AS (
     /* postback은 conversion 여부(log_type)와 무관하게 STB 모집단으로 전체 포함한다 */
     SELECT
+        'ADDI_POSTBACK' AS source,
         CASE
             WHEN LOWER(TRIM(CAST(post.ctv_media AS VARCHAR))) LIKE '%skb%' THEN 'SKB'
             WHEN LOWER(TRIM(CAST(post.ctv_media AS VARCHAR))) LIKE '%uplus%'
@@ -176,11 +179,11 @@ addi_post_base AS (
 ),
 
 stb_base AS (
-    SELECT carrier, plattform_id, ip, observed_at FROM apm_base
+    SELECT source, carrier, plattform_id, ip, observed_at FROM apm_base
     UNION ALL
-    SELECT carrier, plattform_id, ip, observed_at FROM addi_bid_base
+    SELECT source, carrier, plattform_id, ip, observed_at FROM addi_bid_base
     UNION ALL
-    SELECT carrier, plattform_id, ip, observed_at FROM addi_post_base
+    SELECT source, carrier, plattform_id, ip, observed_at FROM addi_post_base
 ),
 
 stb_weekly AS (
@@ -190,7 +193,8 @@ stb_weekly AS (
         ip,
         MIN(observed_at) AS stb_first_seen_at,
         MAX(observed_at) AS stb_last_seen_at,
-        COUNT(*) AS stb_observation_count
+        COUNT(*) AS stb_observation_count,
+        ARRAY_DISTINCT(ARRAY_AGG(source)) AS stb_sources
     FROM stb_base
     WHERE carrier IS NOT NULL
     GROUP BY
@@ -348,7 +352,8 @@ weekly_rows AS (
         CAST(NULL AS TIMESTAMP) AS mobile_last_seen_at,
         a.stb_observation_count,
         CAST(0 AS BIGINT) AS mobile_observation_count,
-        COALESCE(c.ip_adid_cardinality, 0) AS ip_adid_cardinality
+        COALESCE(c.ip_adid_cardinality, 0) AS ip_adid_cardinality,
+        a.stb_sources
     FROM stb_weekly a
     LEFT JOIN ip_adid_cardinality c
         ON a.ip = c.ip
@@ -369,7 +374,8 @@ weekly_rows AS (
         m.mobile_last_seen_at,
         a.stb_observation_count,
         m.mobile_observation_count,
-        m.ip_adid_cardinality
+        m.ip_adid_cardinality,
+        a.stb_sources
     FROM stb_weekly a
     INNER JOIN mobile_reference_filtered m
         ON a.ip = m.ip
@@ -389,5 +395,6 @@ SELECT
     stb_observation_count,
     mobile_observation_count,
     ip_adid_cardinality,
+    stb_sources,
     (SELECT batch_week FROM params) AS batch_week
 FROM weekly_rows;

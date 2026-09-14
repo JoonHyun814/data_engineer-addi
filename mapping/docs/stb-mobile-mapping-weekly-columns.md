@@ -20,7 +20,7 @@
 | ADDI 자체 입찰 로그 | `addi_bid_log_flatten` | `device_ifa` | `device_ip` | `app_bundle` | `mediaid = 'B8BKL2YDDVZQ'`만 포함 |
 | ADDI 포스트백 로그 | `addi_postback_log` | `ifa` | `request_ip` | `ctv_media` | conversion 여부(`log_type`)와 무관하게 전체 포함 |
 
-세 소스는 `(carrier, plattform_id, ip)` 기준으로 합쳐진 뒤 하나의 셋톱 모집단으로 취급되며, 최종 행에는 어느 소스에서 왔는지 남기지 않는다(출처 구분이 필요하면 별도 컬럼 추가가 필요).
+세 소스는 `(carrier, plattform_id, ip)` 기준으로 합쳐진 뒤 하나의 셋톱 모집단으로 취급되며, 그 주에 실제로 관측된 출처 목록은 `stb_sources` 컬럼에 남는다.
 
 ## 2. 행의 성격 및 그레인
 
@@ -48,13 +48,14 @@
 | `stb_observation_count` | 셋톱 관측 건수(주간) | 3개 소스를 합친 뒤 `carrier, plattform_id, ip`별 그 주 로그 행 수(`COUNT(*)`). 소스별로 나뉘지 않는다 |
 | `mobile_observation_count` | 모바일 관측 건수(주간) | `cate, ip, ad_id`별 그 주(TG는 해당 월) 로그 행 수(`COUNT(*)`) |
 | `ip_adid_cardinality` | IP당 고유 ADID 수(주간) | NHN+TG를 합친 그 주 데이터에서 `ip`별 `COUNT(DISTINCT ad_id)`. `STB_IP` 행은 매칭 없으면 `0` |
+| `stb_sources` | 셋톱 관측 출처 목록(주간) | 그 주에 해당 `carrier, plattform_id, ip`를 관측한 로그 출처 배열. `'APM'`/`'ADDI_BID'`/`'ADDI_POSTBACK'` 중 실제 관측된 값만, 중복 제거해서 담는다 |
 | `batch_week` | 배치 주(파티션) | 처리 대상 주의 월요일 날짜(`YYYY-MM-DD`). 파티션 컬럼 |
 
 ## 4. 특이사항
 
 - **20개 초과 IP 제외**: `ip_adid_cardinality`가 20을 넘는 IP는 NAT 등 공유 IP로 보고 `MAPPING` 행 생성 대상에서 제외한다. 단 `STB_IP` 행은 그대로 남고 카디널리티 값도 진단용으로 보존된다.
 - **carrier 미판별 셋톱 제외**: `app_bundle`/`ctv_media`로 통신사가 판별되지 않으면 해당 셋톱 로그는 집계에서 제외된다.
-- **셋톱 소스 3종 통합, 출처 미보존**: APM/ADDI 입찰/ADDI 포스트백 로그를 `(carrier, plattform_id, ip)` 기준으로 합쳐 하나의 셋톱 모집단으로 만든다. 한 셋톱–IP 조합이 여러 소스에서 동시에 관측되면 `stb_observation_count`에 합산되며, 어느 소스에서 왔는지는 결과 행에 남지 않는다.
+- **셋톱 소스 3종 통합**: APM/ADDI 입찰/ADDI 포스트백 로그를 `(carrier, plattform_id, ip)` 기준으로 합쳐 하나의 셋톱 모집단으로 만든다. 한 셋톱–IP 조합이 여러 소스에서 동시에 관측되면 `stb_observation_count`에는 합산되고, `stb_sources`에는 관측된 소스가 모두 남는다(개별 소스별 관측 건수는 구분되지 않는다).
 - **ADDI 자체 입찰 로그는 mediaid 필터 적용**: `addi_bid_log_flatten`은 `mediaid = 'B8BKL2YDDVZQ'`인 행만 사용한다.
 - **ADDI 포스트백은 이벤트 유형 무관**: `addi_postback_log`는 다른 리포트 쿼리와 달리 `log_type = 'v_complete'` 같은 conversion 필터를 적용하지 않고, 유효한 `ifa`/`request_ip`가 있는 모든 행을 셋톱 모집단에 포함한다.
 - **TG는 월 단위 관측**: TG 원천에 시:분:초 정보가 없어 `mobile_first/last_seen_at`이 실제 발생 시각이 아니라 해당 월의 시작/끝이다. 같은 월을 포함하는 여러 주에서 값이 동일하게 반복될 수 있다.

@@ -21,6 +21,9 @@ USING (
         MAX(stb_observation_count) AS stb_observation_count,
         MAX(mobile_observation_count) AS mobile_observation_count,
         MAX(ip_adid_cardinality) AS ip_adid_cardinality,
+        ARRAY_DISTINCT(
+            FLATTEN(ARRAY_AGG(COALESCE(stb_sources, CAST(ARRAY[] AS ARRAY(VARCHAR)))))
+        ) AS stb_sources,
         batch_week
     FROM "dev-ptbwa-dw"."stb_mobile_mapping_weekly"
     WHERE batch_week = '2026-09-07'
@@ -83,6 +86,10 @@ THEN UPDATE SET
         ELSE target.mobile_observation_count + source.mobile_observation_count
     END,
     ip_adid_cardinality = source.ip_adid_cardinality,
+    stb_sources = ARRAY_DISTINCT(
+        COALESCE(target.stb_sources, CAST(ARRAY[] AS ARRAY(VARCHAR)))
+        || COALESCE(source.stb_sources, CAST(ARRAY[] AS ARRAY(VARCHAR)))
+    ),
     last_batch_week = source.batch_week
 
 WHEN NOT MATCHED
@@ -100,6 +107,7 @@ THEN INSERT (
     stb_observation_count,
     mobile_observation_count,
     ip_adid_cardinality,
+    stb_sources,
     first_batch_week,
     last_batch_week
 )
@@ -117,6 +125,7 @@ VALUES (
     source.stb_observation_count,
     source.mobile_observation_count,
     source.ip_adid_cardinality,
+    source.stb_sources,
     source.batch_week,
     source.batch_week
 );

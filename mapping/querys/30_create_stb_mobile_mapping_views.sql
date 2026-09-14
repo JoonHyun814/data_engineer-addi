@@ -44,6 +44,7 @@ SELECT
     m.mobile_last_seen_at,
     m.stb_observation_count,
     m.mobile_observation_count,
+    m.stb_sources,
     m.first_batch_week,
     m.last_batch_week,
 

@@ -38,6 +38,7 @@ record_type, carrier, plattform_id, ip, ad_id, cate
 | `stb_observation_count` | 셋톱 관측 건수(누적) | weekly 값을 누적 합산: `기존값 + 신규 배치값` |
 | `mobile_observation_count` | 모바일 관측 건수(누적) | `cate = 'TG'`면 `GREATEST(기존값, 신규 배치값)`, `NHN`이면 `기존값 + 신규 배치값` |
 | `ip_adid_cardinality` | IP당 고유 ADID 수 | 누적하지 않고 **최신 배치 weekly 값으로 덮어씀** |
+| `stb_sources` | 셋톱 관측 출처 목록(누적) | weekly 값을 누적 합집합: `ARRAY_DISTINCT(기존 current 값 ∪ 신규 배치 weekly 값)`. 한 번이라도 관측된 소스는 계속 남는다(제거되지 않음) |
 | `first_batch_week` | 최초 반영 배치 주 | 이 키가 처음 INSERT된 `batch_week`. 이후 변경되지 않음 |
 | `last_batch_week` | 최종 반영 배치 주 | 가장 최근에 반영된 `batch_week`. 병합할 때마다 갱신 |
 
@@ -47,4 +48,5 @@ record_type, carrier, plattform_id, ip, ad_id, cate
 - `mobile_observation_count`는 출처에 따라 누적 방식이 다르다 — TG는 월 데이터가 여러 주에서 반복 참조되므로 합산 대신 최댓값을 유지한다.
 - `ip_adid_cardinality`는 스냅샷(최신 배치 기준) 값이며 과거 값과 합산/평균하지 않는다. 20을 초과하면 해당 IP의 `MAPPING` 행은 애초에 생성되지 않지만(weekly 단계 필터), `STB_IP` 행과 값 자체는 진단용으로 보존된다.
 - 같은 `batch_week`를 재실행해도 `WHEN MATCHED ... AND source.batch_week > target.last_batch_week` 조건 때문에 중복 반영되지 않는다.
+- 이 컬럼이 추가되기 전에 이미 적재된 행은 `stb_sources`가 `NULL`일 수 있다. 병합 로직은 `NULL`을 빈 배열로 취급해 합집합을 계산하므로, 다음 배치가 반영되면 그 시점부터 값이 채워진다.
 - 활성 여부(최근 6개월 이내 관측)는 컬럼으로 저장되지 않고 조회 시점에 `mobile_last_seen_at` 기준으로 계산한다(`mapping/querys/30_create_stb_mobile_mapping_views.sql` 참고).
