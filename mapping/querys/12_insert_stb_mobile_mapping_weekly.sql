@@ -193,6 +193,29 @@ mobile_reference AS (
     SELECT * FROM tg_monthly
 ),
 
+ip_adid_cardinality AS (
+    SELECT
+        ip,
+        COUNT(DISTINCT ad_id) AS ip_adid_cardinality
+    FROM mobile_reference
+    GROUP BY ip
+),
+
+mobile_reference_filtered AS (
+    SELECT
+        m.cate,
+        m.ip,
+        m.ad_id,
+        m.mobile_first_seen_at,
+        m.mobile_last_seen_at,
+        m.mobile_observation_count,
+        c.ip_adid_cardinality
+    FROM mobile_reference m
+    INNER JOIN ip_adid_cardinality c
+        ON m.ip = c.ip
+    WHERE c.ip_adid_cardinality <= 20
+),
+
 weekly_rows AS (
     /* APM 전체 모집단: 셋톱–IP별 한 행 */
     SELECT
@@ -207,8 +230,11 @@ weekly_rows AS (
         CAST(NULL AS TIMESTAMP) AS mobile_first_seen_at,
         CAST(NULL AS TIMESTAMP) AS mobile_last_seen_at,
         a.stb_observation_count,
-        CAST(0 AS BIGINT) AS mobile_observation_count
+        CAST(0 AS BIGINT) AS mobile_observation_count,
+        COALESCE(c.ip_adid_cardinality, 0) AS ip_adid_cardinality
     FROM apm_weekly a
+    LEFT JOIN ip_adid_cardinality c
+        ON a.ip = c.ip
 
     UNION ALL
 
@@ -225,9 +251,10 @@ weekly_rows AS (
         m.mobile_first_seen_at,
         m.mobile_last_seen_at,
         a.stb_observation_count,
-        m.mobile_observation_count
+        m.mobile_observation_count,
+        m.ip_adid_cardinality
     FROM apm_weekly a
-    INNER JOIN mobile_reference m
+    INNER JOIN mobile_reference_filtered m
         ON a.ip = m.ip
 )
 
@@ -244,5 +271,6 @@ SELECT
     mobile_last_seen_at,
     stb_observation_count,
     mobile_observation_count,
+    ip_adid_cardinality,
     (SELECT batch_week FROM params) AS batch_week
 FROM weekly_rows;

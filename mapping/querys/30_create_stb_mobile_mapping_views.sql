@@ -23,7 +23,10 @@ WITH ip_risk AS (
         END) AS ip_stb_count,
         COUNT(DISTINCT CASE
             WHEN record_type = 'MAPPING' THEN ad_id
-        END) AS ip_adid_count
+        END) AS ip_adid_count,
+        MAX(CASE
+            WHEN record_type = 'STB_IP' THEN ip_adid_cardinality
+        END) AS ip_adid_cardinality
     FROM "dev-ptbwa-dw"."stb_mobile_mapping_current"
     GROUP BY
         carrier,
@@ -63,19 +66,29 @@ SELECT
 
     CASE
         WHEN DATE(m.mobile_last_seen_at)
-             >= DATE_ADD('month', -12, CURRENT_DATE)
+             >= DATE_ADD('month', -6, CURRENT_DATE)
             THEN true
         ELSE false
-    END AS is_active,
+    END AS is_active_6m,
 
     r.ip_stb_count,
-    r.ip_adid_count
+    r.ip_adid_count,
+    COALESCE(r.ip_adid_cardinality, 0) AS ip_adid_cardinality
 
 FROM "dev-ptbwa-dw"."stb_mobile_mapping_current" m
 LEFT JOIN ip_risk r
     ON m.carrier = r.carrier
    AND m.ip = r.ip
-WHERE m.record_type = 'MAPPING';
+WHERE m.record_type = 'MAPPING'
+  AND COALESCE(r.ip_adid_cardinality, 0) <= 20;
+
+/* 3-1-2. 최근 6개월 내 관측된 활성 매핑만 조회 */
+CREATE OR REPLACE VIEW
+    "dev-ptbwa-dw"."stb_mobile_mapping_active"
+AS
+SELECT *
+FROM "dev-ptbwa-dw"."stb_mobile_mapping_current_view"
+WHERE is_active_6m = true;
 
 
 /* =====================================================
@@ -101,28 +114,41 @@ WITH population AS (
 
 mapping_summary AS (
     SELECT
-        carrier,
-        plattform_id,
-        COUNT(DISTINCT ad_id) AS ad_id_count,
+        m.carrier,
+        m.plattform_id,
+        COUNT(DISTINCT m.ad_id) AS ad_id_count,
         COUNT(DISTINCT CASE
-            WHEN DATE(mobile_last_seen_at)
-                 >= DATE_ADD('month', -12, CURRENT_DATE)
-                THEN ad_id
+            WHEN DATE(m.mobile_last_seen_at)
+                 >= DATE_ADD('month', -6, CURRENT_DATE)
+                THEN m.ad_id
         END) AS active_ad_id_count,
         COUNT(DISTINCT CASE
-            WHEN cate = 'NHN' THEN ad_id
+            WHEN m.cate = 'NHN' THEN m.ad_id
         END) AS nhn_ad_id_count,
         COUNT(DISTINCT CASE
-            WHEN cate = 'TG' THEN ad_id
+            WHEN m.cate = 'TG' THEN m.ad_id
         END) AS tg_ad_id_count,
-        COUNT(DISTINCT ip) AS mapped_ip_count,
-        MIN(mobile_first_seen_at) AS mobile_first_seen_at,
-        MAX(mobile_last_seen_at) AS mobile_last_seen_at
-    FROM "dev-ptbwa-dw"."stb_mobile_mapping_current"
-    WHERE record_type = 'MAPPING'
+        COUNT(DISTINCT m.ip) AS mapped_ip_count,
+        MIN(m.mobile_first_seen_at) AS mobile_first_seen_at,
+        MAX(m.mobile_last_seen_at) AS mobile_last_seen_at
+    FROM "dev-ptbwa-dw"."stb_mobile_mapping_current" m
+    LEFT JOIN (
+        SELECT
+            carrier,
+            ip,
+            MAX(ip_adid_cardinality) AS latest_ip_adid_cardinality
+        FROM "dev-ptbwa-dw"."stb_mobile_mapping_current"
+        WHERE record_type = 'STB_IP'
+        GROUP BY carrier, ip
+    ) c
+        ON m.carrier = c.carrier
+       AND m.ip = c.ip
+    WHERE m.record_type = 'MAPPING'
+      AND COALESCE(c.latest_ip_adid_cardinality, m.ip_adid_cardinality, 0)
+          <= 20
     GROUP BY
-        carrier,
-        plattform_id
+        m.carrier,
+        m.plattform_id
 )
 
 SELECT

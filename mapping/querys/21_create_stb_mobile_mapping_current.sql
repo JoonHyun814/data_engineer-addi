@@ -24,6 +24,7 @@ SELECT
     CAST(NULL AS TIMESTAMP) AS mobile_last_seen_at,
     CAST(NULL AS BIGINT) AS stb_observation_count,
     CAST(NULL AS BIGINT) AS mobile_observation_count,
+    CAST(NULL AS BIGINT) AS ip_adid_cardinality,
     CAST(NULL AS VARCHAR) AS first_batch_week,
     CAST(NULL AS VARCHAR) AS last_batch_week
 WHERE FALSE;
