@@ -60,4 +60,4 @@
 - **ADDI 포스트백은 이벤트 유형 무관**: `addi_postback_log`는 다른 리포트 쿼리와 달리 `log_type = 'v_complete'` 같은 conversion 필터를 적용하지 않고, 유효한 `ifa`/`request_ip`가 있는 모든 행을 셋톱 모집단에 포함한다.
 - **TG는 월 단위 관측**: TG 원천에 시:분:초 정보가 없어 `mobile_first/last_seen_at`이 실제 발생 시각이 아니라 해당 월의 시작/끝이다. 같은 월을 포함하는 여러 주에서 값이 동일하게 반복될 수 있다.
 - **중복 적재 주의**: 같은 `batch_week`를 두 번 `INSERT`하면 행이 중복된다. 배치별로 1회만 실행해야 하며, 재실행 방지는 이 테이블이 아니라 `22_merge...sql`의 `last_batch_week` 비교 조건에서 이루어진다.
-- **파티션 프루닝 방식이 소스마다 다름**: APM/NHN은 0-padding이 확인되어 `YYYYMMDD` 정수 범위로 정적 프루닝하지만, ADDI 입찰/포스트백 로그는 0-padding 여부가 확인되지 않아 `DATE_PARSE` 기반 범위 비교를 사용한다. 후자는 매주 `params.week_start`만 바꾸면 되고 별도 리터럴 수정이 필요 없다.
+- **파티션 프루닝 방식이 소스마다 다름**: APM/NHN은 0-padding이 확인되어 `YYYYMMDD` 정수 범위로 정적 프루닝하고, ADDI 입찰/포스트백 로그는 0-padding 여부가 확인되지 않아 `DATE_PARSE` 기반 범위 비교를 사용한다. 두 방식 모두 `params`에서 계산한 값을 참조하므로, 매주 실행할 때는 `params_base.week_start`만 바꾸면 된다.
