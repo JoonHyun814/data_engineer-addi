@@ -13,7 +13,7 @@
  *
  * STB(셋톱) 관측치는 세 소스를 IP/통신사/셋톱 ID 기준으로 합쳐서 만든다.
  * - APM: apm_bid_log_flatten
- * - ADDI 자체 입찰 로그: addi_bid_log_flatten (mediaid = 'B8BKL2YDDVZQ'만)
+ * - ADDI 자체 입찰 로그: addi_bid_log_flatten (media_id = 'B8BKL2YDDVZQ'만)
  * - ADDI 포스트백 로그: addi_postback_log (conversion 여부와 무관하게 전체)
  */
 INSERT INTO "dev-ptbwa-dw"."stb_mobile_mapping_weekly"
@@ -120,7 +120,7 @@ addi_bid_base AS (
               ),
               '%Y-%m-%d'
           ) AS DATE) < p.week_end_exclusive
-      AND b.mediaid = 'B8BKL2YDDVZQ'
+      AND b.media_id = 'B8BKL2YDDVZQ'
       AND NULLIF(TRIM(CAST(b.device_ifa AS VARCHAR)), '') IS NOT NULL
       AND NULLIF(TRIM(CAST(b.device_ip AS VARCHAR)), '') IS NOT NULL
       AND LOWER(TRIM(CAST(b.device_ifa AS VARCHAR))) NOT IN (

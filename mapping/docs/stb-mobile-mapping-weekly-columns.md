@@ -17,7 +17,7 @@
 | 소스 | 테이블 | 셋톱 ID | IP | 통신사 | 비고 |
 |---|---|---|---|---|---|
 | APM | `apm_bid_log_flatten` | `ifa` | `ip` | `app_bundle` | |
-| ADDI 자체 입찰 로그 | `addi_bid_log_flatten` | `device_ifa` | `device_ip` | `app_bundle` | `mediaid = 'B8BKL2YDDVZQ'`만 포함 |
+| ADDI 자체 입찰 로그 | `addi_bid_log_flatten` | `device_ifa` | `device_ip` | `app_bundle` | `media_id = 'B8BKL2YDDVZQ'`만 포함 |
 | ADDI 포스트백 로그 | `addi_postback_log` | `ifa` | `request_ip` | `ctv_media` | conversion 여부(`log_type`)와 무관하게 전체 포함 |
 
 세 소스는 `(carrier, plattform_id, ip)` 기준으로 합쳐진 뒤 하나의 셋톱 모집단으로 취급되며, 그 주에 실제로 관측된 출처 목록은 `stb_sources` 컬럼에 남는다.
@@ -56,7 +56,7 @@
 - **20개 초과 IP 제외**: `ip_adid_cardinality`가 20을 넘는 IP는 NAT 등 공유 IP로 보고 `MAPPING` 행 생성 대상에서 제외한다. 단 `STB_IP` 행은 그대로 남고 카디널리티 값도 진단용으로 보존된다.
 - **carrier 미판별 셋톱 제외**: `app_bundle`/`ctv_media`로 통신사가 판별되지 않으면 해당 셋톱 로그는 집계에서 제외된다.
 - **셋톱 소스 3종 통합**: APM/ADDI 입찰/ADDI 포스트백 로그를 `(carrier, plattform_id, ip)` 기준으로 합쳐 하나의 셋톱 모집단으로 만든다. 한 셋톱–IP 조합이 여러 소스에서 동시에 관측되면 `stb_observation_count`에는 합산되고, `stb_sources`에는 관측된 소스가 모두 남는다(개별 소스별 관측 건수는 구분되지 않는다).
-- **ADDI 자체 입찰 로그는 mediaid 필터 적용**: `addi_bid_log_flatten`은 `mediaid = 'B8BKL2YDDVZQ'`인 행만 사용한다.
+- **ADDI 자체 입찰 로그는 media_id 필터 적용**: `addi_bid_log_flatten`은 `media_id = 'B8BKL2YDDVZQ'`인 행만 사용한다.
 - **ADDI 포스트백은 이벤트 유형 무관**: `addi_postback_log`는 다른 리포트 쿼리와 달리 `log_type = 'v_complete'` 같은 conversion 필터를 적용하지 않고, 유효한 `ifa`/`request_ip`가 있는 모든 행을 셋톱 모집단에 포함한다.
 - **TG는 월 단위 관측**: TG 원천에 시:분:초 정보가 없어 `mobile_first/last_seen_at`이 실제 발생 시각이 아니라 해당 월의 시작/끝이다. 같은 월을 포함하는 여러 주에서 값이 동일하게 반복될 수 있다.
 - **중복 적재 주의**: 같은 `batch_week`를 두 번 `INSERT`하면 행이 중복된다. 배치별로 1회만 실행해야 하며, 재실행 방지는 이 테이블이 아니라 `22_merge...sql`의 `last_batch_week` 비교 조건에서 이루어진다.
