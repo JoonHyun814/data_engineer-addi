@@ -1,7 +1,8 @@
 /*
  * 1-2. 특정 주간 데이터를 주간 누적 테이블에 추가
  *
- * 실행 전 params.week_start만 대상 주 월요일로 변경한다.
+ * 실행 전 params.week_start와 아래 APM/NHN의 YYYYMMDD 리터럴 범위를
+ * 대상 주 월요일~일요일로 함께 변경한다.
  * week_end_exclusive는 week_start + 7일로 자동 계산된다.
  * 같은 batch_week을 두 번 INSERT하면 중복되므로 배치별 1회만 실행한다.
  *
@@ -52,20 +53,9 @@ apm_base AS (
         ) AS observed_at
     FROM "prod-ptbwa-dw"."apm_bid_log_flatten" a
     CROSS JOIN params p
-    WHERE CAST(DATE_PARSE(
-              CONCAT(
-                  a.year, '-', LPAD(CAST(a.month AS VARCHAR), 2, '0'), '-',
-                  LPAD(CAST(a.day AS VARCHAR), 2, '0')
-              ),
-              '%Y-%m-%d'
-          ) AS DATE) >= p.week_start
-      AND CAST(DATE_PARSE(
-              CONCAT(
-                  a.year, '-', LPAD(CAST(a.month AS VARCHAR), 2, '0'), '-',
-                  LPAD(CAST(a.day AS VARCHAR), 2, '0')
-              ),
-              '%Y-%m-%d'
-          ) AS DATE) < p.week_end_exclusive
+    /* 2026-09-07 ~ 2026-09-13: 확인된 0-padding 파티션의 정적 프루닝 */
+    WHERE CAST(CONCAT(a.year, a.month, a.day) AS BIGINT)
+              BETWEEN 20260907 AND 20260913
       AND NULLIF(TRIM(CAST(a.ifa AS VARCHAR)), '') IS NOT NULL
       AND NULLIF(TRIM(CAST(a.ip AS VARCHAR)), '') IS NOT NULL
       AND LOWER(TRIM(CAST(a.ifa AS VARCHAR))) NOT IN (
@@ -111,20 +101,9 @@ nhn_base AS (
         ) AS observed_at
     FROM "prod-ptbwa-dw"."nhn_bid_log_flatten" n
     CROSS JOIN params p
-    WHERE CAST(DATE_PARSE(
-              CONCAT(
-                  n.year, '-', LPAD(CAST(n.month AS VARCHAR), 2, '0'), '-',
-                  LPAD(CAST(n.day AS VARCHAR), 2, '0')
-              ),
-              '%Y-%m-%d'
-          ) AS DATE) >= p.week_start
-      AND CAST(DATE_PARSE(
-              CONCAT(
-                  n.year, '-', LPAD(CAST(n.month AS VARCHAR), 2, '0'), '-',
-                  LPAD(CAST(n.day AS VARCHAR), 2, '0')
-              ),
-              '%Y-%m-%d'
-          ) AS DATE) < p.week_end_exclusive
+    /* 2026-09-07 ~ 2026-09-13: 확인된 0-padding 파티션의 정적 프루닝 */
+    WHERE CAST(CONCAT(n.year, n.month, n.day) AS BIGINT)
+              BETWEEN 20260907 AND 20260913
       AND NULLIF(TRIM(CAST(n.device_ip AS VARCHAR)), '') IS NOT NULL
       AND NULLIF(TRIM(CAST(n.device_ifa AS VARCHAR)), '') IS NOT NULL
       AND LOWER(TRIM(CAST(n.device_ifa AS VARCHAR))) NOT IN (
