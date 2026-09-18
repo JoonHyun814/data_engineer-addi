@@ -1,0 +1,443 @@
+/* ============================================================
+   ABI 버전
+   - ODM 결과 구조와 동일
+   - DEV STB → Mobile ADID Mapping 사용
+   - ABI Mobile ADID → ABI request_ip 사용
+   - 비정상 ADID 제외
+     1) 0000000-0000-0000-0000-000000000000
+     2) 00000000-0000-0000-0000-000000000000
+     3) adid_none
+   ============================================================ */
+
+WITH base_date AS (
+    /* 실행일 기준 전일 */
+    SELECT
+        current_date - INTERVAL '1' DAY AS target_dt,
+
+        CAST(
+            date_format(
+                CAST(current_date - INTERVAL '1' DAY AS timestamp),
+                '%Y%m%d'
+            ) AS INTEGER
+        ) AS target_yyyymmdd
+),
+
+/* ============================================================
+   캠페인 정보
+   ============================================================ */
+info AS (
+    SELECT DISTINCT
+        cmp_no,
+        pixel_id_web
+
+    FROM "prod_addi_conv"."addi_conv_info"
+),
+
+/* ============================================================
+   1. 전일 Mall / GTM 방문 로그
+   ODM과 동일한 구조
+   ============================================================ */
+mall AS (
+    SELECT DISTINCT
+        REPLACE(
+            SUBSTR(g.log_time, 1, 10),
+            '/',
+            '-'
+        ) AS mall_dt,
+
+        date_parse(
+            g.log_time,
+            '%Y/%m/%d/%H:%i:%s'
+        ) AS mall_datetime,
+
+        CASE
+            WHEN g.ev = 'conversion'
+                THEN COALESCE(
+                    CAST(g.conv_type AS VARCHAR),
+                    g.ev
+                )
+
+            WHEN g.ev = 'click'
+                THEN COALESCE(
+                    CAST(g.click AS VARCHAR),
+                    g.ev
+                )
+
+            ELSE g.ev
+        END AS ev,
+
+        g.conv_meta,
+        g.conv_value,
+        g.pid,
+
+        REGEXP_REPLACE(
+            LOWER(
+                TRIM(
+                    CAST(g.ip AS VARCHAR)
+                )
+            ),
+            '^::ffff:',
+            ''
+        ) AS ip,
+
+        i.cmp_no
+
+    FROM "prod-ptbwa-dw"."gtm_logs_hourly" g
+
+    INNER JOIN info i
+        ON g.pid = i.pixel_id_web
+
+    CROSS JOIN base_date b
+
+    WHERE CAST(
+        CONCAT(
+            g.year,
+            LPAD(g.month, 2, '0'),
+            LPAD(g.day, 2, '0')
+        ) AS INTEGER
+    ) = b.target_yyyymmdd
+
+      AND NULLIF(
+            TRIM(
+                CAST(g.ip AS VARCHAR)
+            ),
+            ''
+          ) IS NOT NULL
+),
+
+/* ============================================================
+   전일 Mall 로그가 존재하는 캠페인
+   ============================================================ */
+cmp_list AS (
+    SELECT DISTINCT
+        cmp_no
+
+    FROM mall
+),
+
+/* ============================================================
+   2. CTV 시청 완료 로그
+   ODM과 동일
+   ============================================================ */
+post_base AS (
+    SELECT DISTINCT
+        from_iso8601_timestamp(
+            post.created_at
+        ) AS post_datetime,
+
+        post.cmp_no,
+
+        LOWER(
+            TRIM(
+                CAST(post.ifa AS VARCHAR)
+            )
+        ) AS stp_id,
+
+        REGEXP_REPLACE(
+            LOWER(
+                TRIM(
+                    CAST(post.request_ip AS VARCHAR)
+                )
+            ),
+            '^::ffff:',
+            ''
+        ) AS raw_ip
+
+    FROM "prod-ptbwa-dw"."addi_postback_log" post
+
+    INNER JOIN cmp_list c
+        ON post.cmp_no = c.cmp_no
+
+    CROSS JOIN base_date b
+
+    WHERE post.log_type = 'v_complete'
+
+      AND CAST(
+            CONCAT(
+                post.year,
+                LPAD(post.month, 2, '0'),
+                LPAD(post.day, 2, '0')
+            ) AS INTEGER
+          ) <= b.target_yyyymmdd
+
+      AND NULLIF(
+            TRIM(
+                CAST(post.ifa AS VARCHAR)
+            ),
+            ''
+          ) IS NOT NULL
+),
+
+/* ============================================================
+   3. DEV Mapping
+
+   STB platform_id → Mobile ADID
+   ============================================================ */
+stb_mobile AS (
+    SELECT DISTINCT
+        LOWER(
+            TRIM(
+                CAST(plattform_id AS VARCHAR)
+            )
+        ) AS stp_id,
+
+        LOWER(
+            TRIM(
+                CAST(ad_id AS VARCHAR)
+            )
+        ) AS m_adid,
+
+        carrier
+
+    FROM "dev-ptbwa-dw"."stb_mobile_mapping_weekly"
+
+    WHERE NULLIF(
+            TRIM(
+                CAST(plattform_id AS VARCHAR)
+            ),
+            ''
+          ) IS NOT NULL
+
+      AND NULLIF(
+            TRIM(
+                CAST(ad_id AS VARCHAR)
+            ),
+            ''
+          ) IS NOT NULL
+
+      /* 비정상 ADID 제외 */
+      AND LOWER(
+            TRIM(
+                CAST(ad_id AS VARCHAR)
+            )
+          ) NOT IN (
+            '0000000-0000-0000-0000-000000000000',
+            '00000000-0000-0000-0000-000000000000',
+            'adid_none'
+          )
+),
+
+/* ============================================================
+   4. ABI Mobile ADID → ABI IP
+
+   DEV의 m_adid = ABI의 ifa
+   ============================================================ */
+abi_mobile_ip AS (
+    SELECT DISTINCT
+        LOWER(
+            TRIM(
+                CAST(abi.ifa AS VARCHAR)
+            )
+        ) AS m_adid,
+
+        REGEXP_REPLACE(
+            LOWER(
+                TRIM(
+                    CAST(abi.request_ip AS VARCHAR)
+                )
+            ),
+            '^::ffff:',
+            ''
+        ) AS abi_ip
+
+    FROM "prod-ptbwa-dw"."ab_postback_log" abi
+
+    CROSS JOIN base_date b
+
+    WHERE CAST(
+        CONCAT(
+            abi.year,
+            LPAD(abi.month, 2, '0'),
+            LPAD(abi.day, 2, '0')
+        ) AS INTEGER
+    ) <= b.target_yyyymmdd
+
+      AND NULLIF(
+            TRIM(
+                CAST(abi.ifa AS VARCHAR)
+            ),
+            ''
+          ) IS NOT NULL
+
+      AND NULLIF(
+            TRIM(
+                CAST(abi.request_ip AS VARCHAR)
+            ),
+            ''
+          ) IS NOT NULL
+
+      /* 비정상 ADID 제외 */
+      AND LOWER(
+            TRIM(
+                CAST(abi.ifa AS VARCHAR)
+            )
+          ) NOT IN (
+            '0000000-0000-0000-0000-000000000000',
+            '00000000-0000-0000-0000-000000000000',
+            'adid_none'
+          )
+),
+
+/* ============================================================
+   5. STB → ADID → ABI IP 최종 Mapping Pool
+
+   ODM의 ip_list와 같은 역할
+   ============================================================ */
+ip_list AS (
+    SELECT DISTINCT
+        sm.stp_id,
+        sm.m_adid,
+        abi.abi_ip,
+
+        sm.carrier
+
+    FROM stb_mobile sm
+
+    INNER JOIN abi_mobile_ip abi
+        ON sm.m_adid = abi.m_adid
+),
+
+/* ============================================================
+   6. 실제 광고 시청 STB만 Mapping
+
+   ODM mapping_skp와 동일한 역할
+   ============================================================ */
+mapping_abi AS (
+    SELECT DISTINCT
+        p.post_datetime,
+        p.cmp_no,
+        p.stp_id,
+
+        list.m_adid,
+
+        p.raw_ip,
+        list.abi_ip,
+
+        list.carrier
+
+    FROM post_base p
+
+    INNER JOIN ip_list list
+        ON p.stp_id = list.stp_id
+),
+
+/* ============================================================
+   7. ABI 확장 IP ↔ Mall IP 연결
+   ============================================================ */
+result AS (
+    SELECT
+        f.mall_dt,
+
+        m.post_datetime,
+        f.mall_datetime,
+
+        f.ip AS mall_ip,
+
+        f.cmp_no,
+        f.pid,
+
+        f.ev,
+        f.conv_meta,
+        f.conv_value,
+
+        m.stp_id,
+        m.m_adid,
+        m.raw_ip,
+
+        m.carrier,
+
+        CASE
+            WHEN f.mall_datetime > m.post_datetime
+                THEN true
+
+            ELSE false
+        END AS is_mall_later
+
+    FROM mapping_abi m
+
+    INNER JOIN mall f
+        ON m.abi_ip = f.ip
+       AND m.cmp_no = f.cmp_no
+),
+
+/* ============================================================
+   8. 캠페인 + Mall IP 기준 최초 Touch
+
+   ODM과 완전히 동일한 기준
+   ============================================================ */
+ip_first_touch AS (
+    SELECT
+        mall_dt,
+
+        date_format(
+            post_datetime,
+            '%Y-%m-%d %H:%i:%s'
+        ) AS post_datetime,
+
+        date_format(
+            mall_datetime,
+            '%Y-%m-%d %H:%i:%s'
+        ) AS mall_datetime,
+
+        mall_ip,
+
+        cmp_no,
+        pid,
+
+        ev,
+        conv_meta,
+        conv_value,
+
+        stp_id,
+        m_adid,
+        raw_ip,
+
+        carrier,
+
+        ROW_NUMBER() OVER (
+            PARTITION BY
+                cmp_no,
+                mall_ip
+
+            ORDER BY
+                post_datetime ASC,
+                mall_datetime ASC,
+                stp_id ASC,
+                m_adid ASC
+        ) AS rn
+
+    FROM result
+
+    WHERE is_mall_later = true
+)
+
+/* ============================================================
+   최종 결과
+   ★ ODM 결과와 컬럼 순서 완전히 동일
+   ============================================================ */
+SELECT
+    cmp_no,
+    pid,
+
+    ev,
+    conv_meta,
+    conv_value,
+
+    mall_dt,
+    post_datetime,
+    mall_datetime,
+    mall_ip,
+
+    /* ABI 매핑 구분 */
+    'ABI' AS cate,
+
+    stp_id,
+    m_adid,
+    raw_ip,
+
+    carrier
+
+FROM ip_first_touch
+
+WHERE rn = 1
+;
