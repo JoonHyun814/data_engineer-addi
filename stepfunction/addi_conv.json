@@ -180,6 +180,62 @@
                       "End": true
                     }
                   }
+                },
+                {
+                  "Comment": "raw_conv_new (ABI + STB_MOBILE_MAPPING 통합), athena-insert-data 공용 상태머신으로 날짜별 순차 적재",
+                  "StartAt": "BuildRawConvNewDateList",
+                  "States": {
+                    "BuildRawConvNewDateList": {
+                      "Type": "Task",
+                      "Resource": "arn:aws:states:::lambda:invoke",
+                      "Parameters": {
+                        "FunctionName": "DateUtil",
+                        "Payload": {
+                          "start_date.$": "$.start_date",
+                          "end_date.$": "$.end_date"
+                        }
+                      },
+                      "ResultSelector": {
+                        "date_list.$": "$.Payload.date_list"
+                      },
+                      "ResultPath": "$",
+                      "Next": "RunInsertRawConvNew"
+                    },
+                    "RunInsertRawConvNew": {
+                      "Comment": "raw_conv_new: date_list의 날짜별로 하루씩 순차 적재",
+                      "Type": "Map",
+                      "ItemsPath": "$.date_list",
+                      "MaxConcurrency": 1,
+                      "ItemSelector": {
+                        "date.$": "$$.Map.Item.Value"
+                      },
+                      "ItemProcessor": {
+                        "ProcessorConfig": {
+                          "Mode": "INLINE"
+                        },
+                        "StartAt": "RunInsertRawConvNewPerDate",
+                        "States": {
+                          "RunInsertRawConvNewPerDate": {
+                            "Type": "Task",
+                            "Resource": "arn:aws:states:::states:startExecution.sync:2",
+                            "Parameters": {
+                              "StateMachineArn": "arn:aws:states:ap-northeast-2:170217667865:stateMachine:athena-insert-data:prod",
+                              "Input": {
+                                "date.$": "$.date",
+                                "bucket": "ptbwa-da",
+                                "athena_dirs": "prod/prod_addi_conv/raw_conv_new",
+                                "query_dirs": "ptbwa",
+                                "query_type": "prod-addi_conv_raw_conv_new"
+                              }
+                            },
+                            "End": true
+                          }
+                        }
+                      },
+                      "ResultPath": null,
+                      "End": true
+                    }
+                  }
                 }
               ],
               "ResultPath": null,
