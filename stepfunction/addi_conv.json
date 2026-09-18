@@ -98,19 +98,54 @@
               "Type": "Parallel",
               "Branches": [
                 {
-                  "Comment": "raw_conv_web",
-                  "StartAt": "RunInsertRawConvWeb",
+                  "Comment": "raw_conv_web, athena-insert-data 공용 상태머신으로 날짜별 순차 적재",
+                  "StartAt": "BuildRawConvWebDateList",
                   "States": {
+                    "BuildRawConvWebDateList": {
+                      "Type": "Task",
+                      "Resource": "arn:aws:states:::lambda:invoke",
+                      "Parameters": {
+                        "FunctionName": "DateUtil",
+                        "Payload": {
+                          "start_date.$": "$.start_date",
+                          "end_date.$": "$.end_date"
+                        }
+                      },
+                      "ResultSelector": {
+                        "date_list.$": "$.Payload.date_list"
+                      },
+                      "ResultPath": "$",
+                      "Next": "RunInsertRawConvWeb"
+                    },
                     "RunInsertRawConvWeb": {
-                      "Type": "Task",
-                      "Resource": "arn:aws:states:::glue:startJobRun.sync",
-                      "Parameters": {
-                        "JobName": "prod_addi_conv_insert_Athena",
-                        "Arguments": {
-                          "--s3_query_path": "s3://ptbwa-da/prod/prod_addi_conv/query/raw_conv_web.sql",
-                          "--athena_table": "raw_conv_web",
-                          "--start_date.$": "$.start_date",
-                          "--end_date.$": "$.end_date"
+                      "Comment": "raw_conv_web: date_list의 날짜별로 하루씩 순차 적재",
+                      "Type": "Map",
+                      "ItemsPath": "$.date_list",
+                      "MaxConcurrency": 1,
+                      "ItemSelector": {
+                        "date.$": "$$.Map.Item.Value"
+                      },
+                      "ItemProcessor": {
+                        "ProcessorConfig": {
+                          "Mode": "INLINE"
+                        },
+                        "StartAt": "RunInsertRawConvWebPerDate",
+                        "States": {
+                          "RunInsertRawConvWebPerDate": {
+                            "Type": "Task",
+                            "Resource": "arn:aws:states:::states:startExecution.sync:2",
+                            "Parameters": {
+                              "StateMachineArn": "arn:aws:states:ap-northeast-2:170217667865:stateMachine:athena-insert-data:prod",
+                              "Input": {
+                                "date.$": "$.date",
+                                "bucket": "ptbwa-da",
+                                "athena_dirs": "prod/prod_addi_conv/raw_conv_web",
+                                "query_dirs": "ptbwa",
+                                "query_type": "prod-addi_conv_raw_conv_web"
+                              }
+                            },
+                            "End": true
+                          }
                         }
                       },
                       "ResultPath": null,
@@ -119,19 +154,54 @@
                   }
                 },
                 {
-                  "Comment": "raw_conv_web_v2",
-                  "StartAt": "RunInsertRawConvWeb_v2",
+                  "Comment": "raw_conv_web_v2, athena-insert-data 공용 상태머신으로 날짜별 순차 적재",
+                  "StartAt": "BuildRawConvWebV2DateList",
                   "States": {
+                    "BuildRawConvWebV2DateList": {
+                      "Type": "Task",
+                      "Resource": "arn:aws:states:::lambda:invoke",
+                      "Parameters": {
+                        "FunctionName": "DateUtil",
+                        "Payload": {
+                          "start_date.$": "$.start_date",
+                          "end_date.$": "$.end_date"
+                        }
+                      },
+                      "ResultSelector": {
+                        "date_list.$": "$.Payload.date_list"
+                      },
+                      "ResultPath": "$",
+                      "Next": "RunInsertRawConvWeb_v2"
+                    },
                     "RunInsertRawConvWeb_v2": {
-                      "Type": "Task",
-                      "Resource": "arn:aws:states:::glue:startJobRun.sync",
-                      "Parameters": {
-                        "JobName": "prod_addi_conv_insert_Athena",
-                        "Arguments": {
-                          "--s3_query_path": "s3://ptbwa-da/prod/prod_addi_conv/query/raw_conv_web_v2.sql",
-                          "--athena_table": "raw_conv_web_v2",
-                          "--start_date.$": "$.start_date",
-                          "--end_date.$": "$.end_date"
+                      "Comment": "raw_conv_web_v2: date_list의 날짜별로 하루씩 순차 적재",
+                      "Type": "Map",
+                      "ItemsPath": "$.date_list",
+                      "MaxConcurrency": 1,
+                      "ItemSelector": {
+                        "date.$": "$$.Map.Item.Value"
+                      },
+                      "ItemProcessor": {
+                        "ProcessorConfig": {
+                          "Mode": "INLINE"
+                        },
+                        "StartAt": "RunInsertRawConvWebV2PerDate",
+                        "States": {
+                          "RunInsertRawConvWebV2PerDate": {
+                            "Type": "Task",
+                            "Resource": "arn:aws:states:::states:startExecution.sync:2",
+                            "Parameters": {
+                              "StateMachineArn": "arn:aws:states:ap-northeast-2:170217667865:stateMachine:athena-insert-data:prod",
+                              "Input": {
+                                "date.$": "$.date",
+                                "bucket": "ptbwa-da",
+                                "athena_dirs": "prod/prod_addi_conv/raw_conv_web_v2",
+                                "query_dirs": "ptbwa",
+                                "query_type": "prod-addi_conv_raw_conv_web_v2"
+                              }
+                            },
+                            "End": true
+                          }
                         }
                       },
                       "ResultPath": null,
@@ -140,19 +210,54 @@
                   }
                 },
                 {
-                  "Comment": "raw_conv_web_imp",
-                  "StartAt": "RunInsertRawConvWebImp",
+                  "Comment": "raw_conv_web_imp, athena-insert-data 공용 상태머신으로 날짜별 순차 적재",
+                  "StartAt": "BuildRawConvWebImpDateList",
                   "States": {
+                    "BuildRawConvWebImpDateList": {
+                      "Type": "Task",
+                      "Resource": "arn:aws:states:::lambda:invoke",
+                      "Parameters": {
+                        "FunctionName": "DateUtil",
+                        "Payload": {
+                          "start_date.$": "$.start_date",
+                          "end_date.$": "$.end_date"
+                        }
+                      },
+                      "ResultSelector": {
+                        "date_list.$": "$.Payload.date_list"
+                      },
+                      "ResultPath": "$",
+                      "Next": "RunInsertRawConvWebImp"
+                    },
                     "RunInsertRawConvWebImp": {
-                      "Type": "Task",
-                      "Resource": "arn:aws:states:::glue:startJobRun.sync",
-                      "Parameters": {
-                        "JobName": "prod_addi_conv_insert_Athena",
-                        "Arguments": {
-                          "--s3_query_path": "s3://ptbwa-da/prod/prod_addi_conv/query/raw_conv_web_imp.sql",
-                          "--athena_table": "raw_conv_web_imp",
-                          "--start_date.$": "$.start_date",
-                          "--end_date.$": "$.end_date"
+                      "Comment": "raw_conv_web_imp: date_list의 날짜별로 하루씩 순차 적재",
+                      "Type": "Map",
+                      "ItemsPath": "$.date_list",
+                      "MaxConcurrency": 1,
+                      "ItemSelector": {
+                        "date.$": "$$.Map.Item.Value"
+                      },
+                      "ItemProcessor": {
+                        "ProcessorConfig": {
+                          "Mode": "INLINE"
+                        },
+                        "StartAt": "RunInsertRawConvWebImpPerDate",
+                        "States": {
+                          "RunInsertRawConvWebImpPerDate": {
+                            "Type": "Task",
+                            "Resource": "arn:aws:states:::states:startExecution.sync:2",
+                            "Parameters": {
+                              "StateMachineArn": "arn:aws:states:ap-northeast-2:170217667865:stateMachine:athena-insert-data:prod",
+                              "Input": {
+                                "date.$": "$.date",
+                                "bucket": "ptbwa-da",
+                                "athena_dirs": "prod/prod_addi_conv/raw_conv_web_imp",
+                                "query_dirs": "ptbwa",
+                                "query_type": "prod-addi_conv_raw_conv_web_imp"
+                              }
+                            },
+                            "End": true
+                          }
                         }
                       },
                       "ResultPath": null,
@@ -161,19 +266,54 @@
                   }
                 },
                 {
-                  "Comment": "raw_conv_web_v3",
-                  "StartAt": "RunInsertRawConvWeb_v3",
+                  "Comment": "raw_conv_web_v3, athena-insert-data 공용 상태머신으로 날짜별 순차 적재",
+                  "StartAt": "BuildRawConvWebV3DateList",
                   "States": {
-                    "RunInsertRawConvWeb_v3": {
+                    "BuildRawConvWebV3DateList": {
                       "Type": "Task",
-                      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+                      "Resource": "arn:aws:states:::lambda:invoke",
                       "Parameters": {
-                        "JobName": "prod_addi_conv_insert_Athena",
-                        "Arguments": {
-                          "--s3_query_path": "s3://ptbwa-da/prod/prod_addi_conv/query/raw_conv_web_v3.sql",
-                          "--athena_table": "raw_conv_web_v3",
-                          "--start_date.$": "$.start_date",
-                          "--end_date.$": "$.end_date"
+                        "FunctionName": "DateUtil",
+                        "Payload": {
+                          "start_date.$": "$.start_date",
+                          "end_date.$": "$.end_date"
+                        }
+                      },
+                      "ResultSelector": {
+                        "date_list.$": "$.Payload.date_list"
+                      },
+                      "ResultPath": "$",
+                      "Next": "RunInsertRawConvWeb_v3"
+                    },
+                    "RunInsertRawConvWeb_v3": {
+                      "Comment": "raw_conv_web_v3: date_list의 날짜별로 하루씩 순차 적재",
+                      "Type": "Map",
+                      "ItemsPath": "$.date_list",
+                      "MaxConcurrency": 1,
+                      "ItemSelector": {
+                        "date.$": "$$.Map.Item.Value"
+                      },
+                      "ItemProcessor": {
+                        "ProcessorConfig": {
+                          "Mode": "INLINE"
+                        },
+                        "StartAt": "RunInsertRawConvWebV3PerDate",
+                        "States": {
+                          "RunInsertRawConvWebV3PerDate": {
+                            "Type": "Task",
+                            "Resource": "arn:aws:states:::states:startExecution.sync:2",
+                            "Parameters": {
+                              "StateMachineArn": "arn:aws:states:ap-northeast-2:170217667865:stateMachine:athena-insert-data:prod",
+                              "Input": {
+                                "date.$": "$.date",
+                                "bucket": "ptbwa-da",
+                                "athena_dirs": "prod/prod_addi_conv/raw_conv_web_v3",
+                                "query_dirs": "ptbwa",
+                                "query_type": "prod-addi_conv_raw_conv_web_v3"
+                              }
+                            },
+                            "End": true
+                          }
                         }
                       },
                       "ResultPath": null,
