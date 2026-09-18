@@ -4,7 +4,7 @@
 
 - `lambda/` — 개별 Lambda 함수 (수집, 동기화, 코드 계산 등). 폴더명 = 함수명.
 - `glue/` — Glue Job 스크립트 (Athena/S3 ↔ RDS 이관).
-- `athena_querys/` — Athena에서 실행하는 조회/집계 SQL.
+- `athena_querys/` — Athena에서 실행하는 조회/집계 SQL. `raw/`(raw_conv_* 원자료 적재)와 `report/`(report_* 집계) 아래 각각 `ddl/`(CTAS 초기 적재), `backfill/`(구간 재적재), `origin/`(일별 적재 원본 쿼리)으로 나뉘고, `check/`는 검증용 조회 쿼리를 모아둔다.
 - `rds_query/` — RDS 테이블 생성 등 DDL.
 - `stepfunction/` — Step Functions 정의 및 IAM 정책 JSON.
 - `datas/` — 로컬 참조용 데이터 파일(gitignore 대상, 커밋하지 않음).
